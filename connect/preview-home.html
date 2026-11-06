@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Crisp Cares & Crispus Mundo — Connect (preview)</title>
+<link rel="icon" href="cm-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Cormorant+Garamond:wght@600;700&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#1B2951;--navy2:#22356A;--gold:#C9A961;--gold2:#E8C97A;--cream:#FAF7F0;--ink:#1B2951;--muted:#5b6475}
+*{box-sizing:border-box}body{margin:0;font-family:Figtree,system-ui,sans-serif;background:var(--cream);color:var(--ink)}
+.hero{position:relative;overflow:hidden;color:#fff;background:radial-gradient(120% 80% at 85% 10%,rgba(201,169,97,.28),transparent 55%),radial-gradient(90% 70% at 0% 100%,rgba(232,201,122,.12),transparent 60%),linear-gradient(160deg,#16224A,#22356A);padding:14px 18px 0}
+.hero:before{content:"";position:absolute;inset:0;background:repeating-radial-gradient(circle at 110% -10%,transparent 0 46px,rgba(201,169,97,.08) 47px 48px);pointer-events:none}
+.wrap{max-width:1040px;margin:0 auto;position:relative}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:#fff}
+.coin{width:52px;height:52px;border-radius:50%;position:relative;flex:0 0 52px;box-shadow:0 0 0 2px rgba(201,169,97,.5),0 6px 18px rgba(0,0,0,.35);overflow:hidden}
+.coin img{width:100%;height:100%;display:block}
+.coin:after{content:"";position:absolute;inset:-40%;background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,.55) 50%,transparent 60%);animation:glint 5s ease-in-out infinite}
+@keyframes glint{0%,70%{transform:translateX(-80%)}100%{transform:translateX(80%)}}
+.wm b{display:block;font:700 19px/1 Cinzel,serif;letter-spacing:.12em;color:var(--gold2)}
+.wm span{display:block;font:600 15px/1.2 "Cormorant Garamond",serif;letter-spacing:.06em;color:#E6DDC8;margin-top:3px}
+.topbtn{display:flex;gap:8px}
+.pill{border:1px solid rgba(255,255,255,.35);color:#fff;background:rgba(255,255,255,.06);border-radius:999px;padding:9px 14px;font:700 14px Figtree;text-decoration:none}
+.stage{display:grid;grid-template-columns:1fr;align-items:end;margin-top:18px}
+.copy{padding-bottom:22px;position:relative;z-index:2}
+.eyebrow{display:inline-flex;gap:8px;align-items:center;background:rgba(201,169,97,.16);color:var(--gold2);border:1px solid rgba(201,169,97,.4);border-radius:999px;padding:6px 12px;font:700 12px Figtree;letter-spacing:.08em;text-transform:uppercase}
+h1{font:700 clamp(38px,9vw,64px)/1.02 "Cormorant Garamond",serif;margin:14px 0 10px;max-width:12ch}
+h1 em{font-style:normal;background:linear-gradient(90deg,var(--gold2),var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:17px;line-height:1.5;color:#E6DDC8;max-width:34ch;margin:0 0 16px}
+.watch{display:flex;align-items:center;gap:14px;border:2px solid var(--gold);background:rgba(255,255,255,.07);color:#fff;border-radius:22px;padding:10px 18px 10px 10px;font:800 17px Figtree;max-width:420px;width:100%;cursor:pointer;text-align:left}
+.watch .pl{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--gold2),var(--gold));display:grid;place-items:center;color:var(--navy);font-size:24px;box-shadow:0 0 0 0 rgba(232,201,122,.7);animation:pulse 2.2s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 16px rgba(232,201,122,0)}100%{box-shadow:0 0 0 0 rgba(232,201,122,0)}}
+.watch small{display:block;font:500 13px Figtree;color:#E6DDC8}
+.cta{display:flex;gap:10px;margin-top:12px;max-width:420px}
+.cta a{flex:1;text-align:center;text-decoration:none;border-radius:16px;padding:15px 10px;font:800 17px Figtree}
+.cta .in{background:var(--cream);color:var(--navy)}.cta .join{background:linear-gradient(135deg,var(--gold2),var(--gold));color:var(--navy)}
+.trust{display:flex;flex-wrap:wrap;gap:8px 14px;margin:14px 0 0;color:#E6DDC8;font:600 13px Figtree}
+.trust span:before{content:"✓ ";color:var(--gold2)}
+.guide{position:absolute;right:-6px;bottom:0;width:150px;z-index:1;pointer-events:none}
+.guide img{width:100%;display:block;filter:drop-shadow(0 10px 18px rgba(0,0,0,.35))}
+.bubble{position:absolute;right:120px;bottom:330px;background:#fff;color:var(--navy);font:700 14px Figtree;padding:10px 14px;border-radius:16px 16px 4px 16px;box-shadow:0 8px 20px rgba(0,0,0,.25);white-space:nowrap;animation:float 3s ease-in-out infinite;z-index:3}
+@keyframes float{50%{transform:translateY(-6px)}}
+main{padding:22px 18px 40px}
+h2{font:700 28px "Cormorant Garamond",serif;margin:0 0 12px}
+.search{display:flex;gap:8px;margin:0 0 18px}.search input{flex:1;border:1px solid #E6DDC8;border-radius:14px;padding:14px;font:500 16px Figtree;background:#fff}.search button{border:0;border-radius:14px;background:var(--navy);color:#fff;font:800 16px Figtree;padding:0 18px}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.tile{position:relative;border-radius:22px;padding:14px;min-height:150px;text-decoration:none;color:var(--navy);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;box-shadow:0 2px 0 rgba(27,41,81,.06);transition:transform .15s}
+.tile:active{transform:scale(.97)}
+.tile .art{position:absolute;top:10px;right:10px;width:72px;height:72px}.tile .art svg{width:100%;height:100%}
+.tile b{font:800 18px/1.15 Figtree}.tile small{font:500 13px Figtree;color:#3c4660;margin-top:3px}
+.t1{background:#FFF3D1}.t2{background:#E3F0FF}.t3{background:#FCE7EF}.t4{background:#1B2951;color:#fff}.t4 small{color:#E6DDC8}.t5{background:#E6F5EC}.t6{background:#EFE9FA}
+.badge{position:absolute;top:12px;left:12px;background:var(--gold);color:var(--navy);font:800 11px Figtree;padding:4px 8px;border-radius:999px}
+.strip{margin-top:22px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center}
+.strip div{background:#fff;border:1px solid #E6DDC8;border-radius:18px;padding:14px 6px}.strip b{display:block;font:800 24px Figtree;color:var(--navy)}.strip span{font:600 12px Figtree;color:var(--muted)}
+footer{padding:18px;color:var(--muted);font-size:13px;border-top:1px solid #E6DDC8}
+@media(min-width:760px){.stage{grid-template-columns:1.2fr .8fr}.guide{position:relative;right:auto;width:230px;justify-self:center}.bubble{right:auto;left:-40px;bottom:auto;top:30px}.tiles{grid-template-columns:repeat(3,1fr)}main{max-width:1040px;margin:0 auto}}
+</style></head>
+<body>
+<section class="hero"><div class="wrap">
+  <div class="top">
+    <a class="brand" href="#"><span class="coin"><img src="cm-logo.png" alt="Crispus Mundo"></span><span class="wm"><b>CRISP CARES</b><span>&amp; Crispus Mundo</span></span></a>
+    <div class="topbtn"><a class="pill" href="member/">Sign in</a></div>
+  </div>
+  <div class="stage">
+    <div class="copy">
+      <span class="eyebrow">★ Connect · free for students &amp; pros</span>
+      <h1>Your next move <em>starts here.</em></h1>
+      <p class="sub">Jobs, training, taxes, heating &amp; cooling and home care. Tap what you need. We'll take it from there.</p>
+      <button class="watch"><span class="pl">▶</span><span>Watch how it works<small>About 1½ minutes · sound and captions</small></span></button>
+      <div class="cta"><a class="in" href="member/">Sign in</a><a class="join" href="member/?join=1&amp;src=hub">Join free</a></div>
+      <div class="trust"><span>Free to join</span><span>Works offline</span><span>16 languages</span></div>
+    </div>
+    <div class="guide"><div class="bubble">Hi! Want a quick tour?</div><img src="presenter.svg" alt=""></div>
+  </div>
+</div></section>
+<main>
+  <h2>What are you looking for?</h2>
+  <div class="search"><input placeholder="Try: file my taxes, HVAC job, home care"><button>Find</button></div>
+  <div class="tiles" id="tiles"></div>
+  <div class="strip"><div><b>14</b><span>HVAC jobs open</span></div><div><b>9</b><span>study fields</span></div><div><b>24/7</b><span>help bubble</span></div></div>
+</main>
+<footer>Crisp Cares Environmental Services · Crispus Mundo · CMCC Training Institute · Southfield &amp; West Bloomfield, Michigan</footer>
+<script src="member/art.js"></script>
+<script>
+var T=[['t1','taxform','Taxes','File, fix or plan'],['t2','acunit','Heating & cooling','Repair, install, tune-up'],['t3','home','Home care','Care for someone you love'],['t4','briefcase','Jobs & training','HVAC jobs, certifications',1],['t5','handshake','Start a business','LLC, EIN, bookkeeping'],['t6','heart','Health & dental','Clinics near you']];
+document.getElementById('tiles').innerHTML=T.map(function(t){return '<a class="tile '+t[0]+'" href="#">'+(t[4]?'<span class="badge">NEW JOBS</span>':'')+'<span class="art">'+(window.ART&&ART[t[1]]||'')+'</span><b>'+t[2]+'</b><small>'+t[3]+'</small></a>';}).join('');
+</script>
+</body></html>
