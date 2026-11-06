@@ -92,19 +92,34 @@
     return t;
   }
   function render() {
-    var nav = document.getElementById('tabs'); nav.hidden = false;
+    var nav = document.getElementById('tabs'); nav.hidden = true;
+    var MAIN = [['home', 'Home', 'home'], ['learn', 'Learn', 'bulb'], ['wisdom', 'Wisdom', 'mountain'], ['jobs', 'Jobs', 'briefcase'], ['more', 'More', 'people']];
+    var inMain = MAIN.some(function (m) { return m[0] === S.tab; });
+    var bn = document.getElementById('bottomNav'); bn.hidden = false;
+    bn.innerHTML = MAIN.map(function (m) { var on = S.tab === m[0] || (m[0] === 'more' && !inMain); return '<button type="button" data-tab="' + m[0] + '"' + (on ? ' aria-current="page"' : '') + '><span class="bn-icon">' + ART[m[2]] + '</span><span>' + m[1] + '</span></button>'; }).join('');
+    document.body.classList.toggle('feed-mode', S.tab === 'wisdom');
     document.getElementById('tabList').innerHTML = TABS().map(function (t) { return '<button type="button" data-tab="' + t[0] + '"' + (S.tab === t[0] ? ' aria-current="page"' : '') + '>' + h(t[1]) + '</button>'; }).join('');
     document.getElementById('topRight').innerHTML = S.me.premium ? '<span class="pill pro">Pro</span>' : '<button class="link" style="color:var(--gold)" data-tab="upgrade">Go Pro</button>';
     var fn = VIEWS[S.tab] || VIEWS.home;
     app.innerHTML = fn();
     var cur = document.querySelector('nav.tabs [aria-current]'); if (cur && cur.scrollIntoView) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
     if (S.tab === 'wallet') loadThumbs();
+    if (S.tab === 'learn') afterLearnRender();
     if (S.tab === 'admin' && !S.admin) loadAdmin();
   }
   function go(tab) { S.tab = tab; S.edit = null; try { history.replaceState(null, '', '#' + tab); } catch (e) {} render(); window.scrollTo(0, 0); }
 
   /* ---------------- views */
   var VIEWS = {};
+  var MORE = [['ask', 'Ask & help', 'chat', 'sky'], ['unions', 'Unions', 'handshake', 'sand'], ['tracker', 'My job tracker', 'briefcase', 'navy'], ['wallet', 'Licenses', 'shield', 'mint'], ['log', 'Hours & miles', 'clock', 'sun'], ['resume', 'Resume', 'book', 'lav'], ['upgrade', 'Pro & shop', 'coins', 'rose'], ['profile', 'Profile', 'people', 'sky']];
+  VIEWS.more = function () {
+    var list = MORE.slice(); if (S.me.role === 'admin') list.push(['admin', 'Admin', 'law', 'navy']);
+    return '<h1>Everything</h1><div class="tiles">' + list.map(function (m) { return '<button type="button" class="tile ' + m[3] + '" data-tab="' + m[0] + '"><span class="tile-art">' + ART[m[2]] + '</span><span class="tile-title">' + h(m[1]) + '</span></button>'; }).join('') + '</div>';
+  };
+  function quickTiles() {
+    var q = [['learn', 'Learn', 'bulb', 'sun'], ['wisdom', 'Wisdom', 'mountain', 'lav'], ['jobs', 'Jobs', 'briefcase', 'navy'], ['unions', 'Unions', 'handshake', 'sand'], ['wallet', 'Licenses', 'shield', 'mint'], ['ask', 'Ask', 'chat', 'sky']];
+    return '<div class="tiles small-tiles">' + q.map(function (m) { return '<button type="button" class="tile ' + m[3] + '" data-tab="' + m[0] + '"><span class="tile-art">' + ART[m[2]] + '</span><span class="tile-title">' + m[1] + '</span></button>'; }).join('') + '</div>';
+  }
 
   VIEWS.home = function () {
     var me = S.me, first = (me.name || '').split(' ')[0];
@@ -115,7 +130,7 @@
     var yr = new Date().getFullYear() + '';
     var hrs = items('log').filter(function (l) { return l.type === 'Hours' && (l.date || '').indexOf(yr) === 0; }).reduce(function (s, l) { return s + (Number(l.hours) || 0); }, 0);
     return '<h1>' + (first ? 'Welcome back, ' + h(first) : 'Welcome') + '</h1>' +
-      tickerHtml() + wisdomToday() +
+      tickerHtml() + quickTiles() + wisdomToday() +
       (newUp.length ? '<div class="notice"><b>' + newUp.length + ' rule change' + (newUp.length > 1 ? 's' : '') + ' for your field.</b> <button class="link" data-act="openUpdates">Read them</button></div>' : '') +
       '<div class="grid2">' +
       '<div class="stat"><b>' + items('track').filter(function (t) { return t.status === 'Applied' || t.status === 'Interviewing'; }).length + '</b>open applications</div>' +
@@ -318,32 +333,126 @@
   function proQuiz(f) { return S.premium && S.premium.quizzes && S.premium.quizzes[f] || []; }
   function proRef(f) { return S.premium && S.premium.refreshers && S.premium.refreshers[f] || []; }
   function proDiagrams(f) { return S.premium && S.premium.diagrams ? S.premium.diagrams.filter(function (d) { return d.field === f; }) : []; }
+  /* points and day streak (kept on this phone, per member) */
+  function xpKey() { return 'connect_xp_' + (S.me && S.me.email || ''); }
+  function xpGet() { try { return JSON.parse(store(xpKey()) || '{}'); } catch (e) { return {}; } }
+  function xpAdd(n) {
+    var x = xpGet(), t = today(), y = new Date(Date.now() - 86400000); y = y.getFullYear() + '-' + ('0' + (y.getMonth() + 1)).slice(-2) + '-' + ('0' + y.getDate()).slice(-2);
+    if (x.last !== t) { x.streak = x.last === y ? (x.streak || 0) + 1 : 1; x.last = t; x.todayCount = 0; }
+    x.pts = (x.pts || 0) + n; x.todayCount = (x.todayCount || 0) + 1; store(xpKey(), JSON.stringify(x)); return x;
+  }
+  function xpBar() {
+    var x = xpGet(), alive = x.last === today() || (x.last && (new Date(today()) - new Date(x.last)) <= 86400000);
+    var goal = Math.min(5, x.last === today() ? x.todayCount || 0 : 0);
+    return '<div class="xpbar"><span class="xp-chip"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 2c2 4 6 6 6 11a6 6 0 0 1-12 0c0-3 2-5 3-7 1 2 2 3 3 3 0-3-1-5 0-7z" fill="#E8873A"/></svg><b>' + (alive ? x.streak || 0 : 0) + '</b> day streak</span>' +
+      '<span class="xp-chip"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 2l3 6.5 7 .8-5.2 4.8 1.4 7L12 17.6 5.8 21l1.4-7L2 9.3l7-.8z" fill="#C9A961"/></svg><b>' + (x.pts || 0) + '</b> points</span>' +
+      '<span class="xp-chip">Today <span class="goal">' + [0, 1, 2, 3, 4].map(function (i) { return '<i class="' + (i < goal ? 'on' : '') + '"></i>'; }).join('') + '</span></span></div>';
+  }
+  function bigArt(text, fallback, cls) { return '<div class="art ' + (cls || '') + '">' + window.artFor(text, fallback) + '</div>'; }
+  function autoRead() { return store('connect_autoread') === '1'; }
+  function sayNow(text, label) { if (!speakable()) return; playList([{ text: text, show: label || text.slice(0, 60), lang: window.CONNECT_LANG }], label || 'Reading'); }
+
   VIEWS.learn = function () {
     var fields = learnFields(); var f = S.learnField && fields.indexOf(S.learnField) > -1 ? S.learnField : fields[0]; S.learnField = f;
-    var L = LEARN[f] || { refreshers: [], quiz: [] };
-    var ups = S.updates.filter(function (u) { return u.field === f || u.field === 'All' || (f === 'HVAC/R' && u.field === 'EPA 608'); });
-    var diags = DIAGRAMS.filter(function (d) { return d.field === f; });
-    var pro = !!S.me.premium;
-    var best = store('connect_best_' + f);
     store('connect_updates_seen', String(Date.now()));
     if (S.quiz && S.quiz.field === f) return quizView();
-    return '<h1>Learn</h1>' +
-      '<label for="learnField">Field</label><select id="learnField" data-act-change="learnField">' + fields.map(function (x) { return '<option' + (x === f ? ' selected' : '') + '>' + h(x) + '</option>'; }).join('') + '</select>' +
-      '<div class="card" style="margin-top:12px"><h3>Car mode</h3><p class="small muted">Plays out loud, one after another, so you can listen while you drive. Keep your screen on.</p><div class="row">' +
-      '<button class="primary" data-act="listen" data-what="ref">Listen: refreshers</button><button class="primary" data-act="listen" data-what="quiz">Listen: quiz with answers</button>' + (ups.length ? '<button class="ghost" data-act="listen" data-what="ups">Listen: rule changes</button>' : '') + '<button class="ghost" data-act="listen" data-what="wisdom">Listen: wisdom</button></div>' +
-      (!pro ? '<p class="small muted" style="margin:8px 0 0">Pro adds the full exam-prep set to car mode.</p>' : '') + '</div>' +
-      (ups.length ? '<h2 id="rules">Rule changes</h2>' + ups.map(function (u) {
-        var isNew = Date.now() - new Date(u.created).getTime() < 45 * 86400000;
-        return '<div class="card"><div class="spread"><h3>' + h(u.title) + '</h3>' + (isNew ? '<span class="tag warn">New</span>' : '') + '</div><div class="small muted">' + h(u.field) + (u.effective ? ' · effective ' + h(fmtDate(u.effective)) : '') + '</div><p style="margin-top:6px">' + h(u.body) + '</p>' + (u.source ? '<a class="small" href="' + h(u.source) + '" target="_blank" rel="noopener">Source</a>' : '') + '</div>';
-      }).join('') : '') +
-      '<h2>Practice quiz</h2><div class="card"><p>' + (L.quiz.length + proQuiz(f).length) + ' questions' + (best ? ' · your best: ' + h(best) : '') + '</p><div class="row"><button class="primary" data-act="startQuiz" data-n="10">Quick quiz (10)</button>' +
-      (pro && proQuiz(f).length ? '<button class="gold" data-act="startQuiz" data-n="999">Full exam prep (Pro)</button>' : (!pro ? '<button class="ghost" data-tab="upgrade">Full exam prep · Pro</button>' : '')) + '</div></div>' +
-      '<h2>Refreshers</h2>' + (L.refreshers.concat(proRef(f)).map(function (r, i) { return '<div class="card"><h3>' + h(r[0]) + (i >= L.refreshers.length ? ' <span class="tag navy">Pro</span>' : '') + '</h3><p style="margin:0">' + h(r[1]) + '</p></div>'; }).join('') || '<p class="muted">More refreshers for this field are coming.</p>') +
-      (!pro && f === 'HVAC/R' ? '<div class="card lock"><h3>Ladder diagrams, capacitor and contactor checks <span class="tag navy">Pro</span></h3><p class="small muted">Part of Connect Pro.</p></div>' : '') +
-      ((diags.length || proDiagrams(f).length) ? '<h2>Diagrams</h2>' + diags.concat(proDiagrams(f)).map(function (d, i) { return '<div class="card"><h3>' + h(d.title) + (i >= diags.length ? ' <span class="tag navy">Pro</span>' : '') + '</h3><div class="diagram">' + drawDiagram(d) + '</div></div>'; }).join('') : '') +
-      (!pro && f === 'HVAC/R' ? '<div class="card lock"><h3>Heat pump, two-stage and zone valve wiring <span class="tag navy">Pro</span></h3><p class="small muted">Advanced wiring diagrams are part of Connect Pro.</p><button class="gold" data-tab="upgrade">See plans</button></div>' : '') +
-      '<p class="small muted">Study aids only. Check your instructor, the manufacturer\'s data and the official study guide. Rules change; we post updates here when they do.</p>';
+    var mode = S.learnMode || 'hub';
+    if (mode === 'cards') return cardsView(f);
+    if (mode === 'diagrams') return diagramsView(f);
+    if (mode === 'rules') return rulesView(f);
+    var L = LEARN[f] || { refreshers: [], quiz: [] }, pro = !!S.me.premium;
+    var nCards = L.refreshers.length + proRef(f).length, nQ = L.quiz.length + proQuiz(f).length;
+    var nDiag = DIAGRAMS.filter(function (d) { return d.field === f; }).length + proDiagrams(f).length;
+    var ups = rulesFor(f), newUps = ups.filter(function (u) { return Date.now() - new Date(u.created).getTime() < 45 * 86400000; }).length;
+    var best = store('connect_best_' + f);
+    var tile = function (act, extra, art, title, sub, badge, tone) { return '<button type="button" class="tile ' + (tone || '') + '" data-act="' + act + '"' + (extra || '') + '>' + (badge ? '<span class="badge">' + badge + '</span>' : '') + '<span class="tile-art">' + art + '</span><span class="tile-title">' + h(title) + '</span><span class="tile-sub">' + h(sub) + '</span></button>'; };
+    return '<h1 class="sr-only">Learn</h1>' + xpBar() +
+      '<div class="chips" role="tablist" aria-label="Field">' + fields.map(function (x) { return '<button type="button" role="tab" aria-selected="' + (x === f) + '" class="chip' + (x === f ? ' on' : '') + '" data-act="fieldChip" data-f="' + h(x) + '"><span class="chip-art">' + window.artField(x) + '</span>' + h(x) + '</button>'; }).join('') + '</div>' +
+      '<label for="learnField" class="sr-only">Field</label><select id="learnField" class="sr-only" data-act-change="learnField">' + fields.map(function (x) { return '<option' + (x === f ? ' selected' : '') + '>' + h(x) + '</option>'; }).join('') + '</select>' +
+      '<div class="tiles">' +
+      tile('learnMode', ' data-m="cards"', ART.bulb, 'Flashcards', nCards + ' cards · tap to flip', '', 'sun') +
+      tile('startQuiz', ' data-n="10"', ART.target, 'Quick quiz', (best ? 'Best ' + best : Math.min(10, nQ) + ' questions'), '', 'rose') +
+      tile('openCar', '', ART.chat, 'Listen in the car', 'Plays out loud, hands-free', '', 'sky') +
+      tile('learnMode', ' data-m="diagrams"', ART.wires, 'Diagrams', nDiag ? nDiag + ' pictures' : 'Coming soon', '', 'mint') +
+      (ups.length ? tile('learnMode', ' data-m="rules"', ART.law, 'Rule changes', ups.length + ' updates', newUps ? newUps + ' new' : '', 'sand') : '') +
+      tile('goWisdom', '', ART.mountain, 'Wisdom', 'Swipe short lessons', '', 'lav') +
+      (pro && proQuiz(f).length ? tile('startQuiz', ' data-n="999"', ART.shield, 'Full exam prep', nQ + ' questions', 'Pro', 'navy') : (!pro ? tile('goUpgrade', '', ART.shield, 'Full exam prep', 'More cards, diagrams & quizzes', 'Pro', 'navy') : '')) +
+      '</div>' +
+      (L.refreshers[0] ? '<h2>Card of the day</h2>' + (function () { var r = L.refreshers[dayIndex() % L.refreshers.length]; return '<button type="button" class="feature" data-act="learnMode" data-m="cards">' + bigArt(r[0] + ' ' + r[1], f, 'sm') + '<span><b>' + h(r[0]) + '</b><br><span class="muted small">Tap to study</span></span></button>'; })() : '') +
+      '<p class="small muted" style="margin-top:14px">Study aids only. Check your instructor, the manufacturer\'s data and the official study guide.</p>';
   };
+  function rulesFor(f) { return S.updates.filter(function (u) { return u.field === f || u.field === 'All' || (f === 'HVAC/R' && u.field === 'EPA 608'); }); }
+  function backBar(title) { return '<div class="backbar"><button type="button" class="ghost icon-btn" data-act="learnMode" data-m="hub" aria-label="Back to Learn">‹</button><h1>' + h(title) + '</h1><label class="toggle"><input type="checkbox" data-act-change="autoRead"' + (autoRead() ? ' checked' : '') + '> Read to me</label></div>'; }
+  function deckFor(f) { var L = LEARN[f] || { refreshers: [] }; return L.refreshers.map(function (r) { return { t: r[0], b: r[1], pro: false }; }).concat(proRef(f).map(function (r) { return { t: r[0], b: r[1], pro: true }; })); }
+  function cardsView(f) {
+    var deck = deckFor(f); if (!deck.length) return backBar('Flashcards') + '<p class="muted">More cards for this field are coming.</p>';
+    var i = Math.max(0, Math.min(S.cardI || 0, deck.length - 1)); S.cardI = i; var c = deck[i], flipped = !!S.cardFlip;
+    return backBar('Flashcards') +
+      '<div class="progress"><span style="width:' + Math.round((i + 1) / deck.length * 100) + '%"></span></div><p class="small muted center">' + (i + 1) + ' of ' + deck.length + (S.me.premium ? '' : ' · Pro adds more') + '</p>' +
+      '<div class="flash' + (flipped ? ' flipped' : '') + '" id="flash" data-act="cardFlip" role="button" tabindex="0" aria-label="' + (flipped ? 'Show picture' : 'Show answer') + '">' +
+      (!flipped ? bigArt(c.t + ' ' + c.b, f, 'xl') + '<div class="flash-title">' + h(c.t) + (c.pro ? ' <span class="tag navy">Pro</span>' : '') + '</div><div class="flash-hint">Tap to flip</div>'
+        : '<div class="flash-title sm">' + h(c.t) + '</div><div class="flash-body">' + h(c.b) + '</div><div class="flash-hint">Tap to see the picture</div>') + '</div>' +
+      '<div class="flash-actions"><button type="button" class="round" data-act="cardPrev" aria-label="Previous card"' + (i === 0 ? ' disabled' : '') + '>‹</button>' +
+      '<button type="button" class="round" data-act="cardSpeak" aria-label="Read this card out loud"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM16 8a5 5 0 0 1 0 8M18.5 5.5a8.5 8.5 0 0 1 0 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>' +
+      '<button type="button" class="round gold" data-act="cardGot" aria-label="Got it, next card">✓</button>' +
+      '<button type="button" class="round" data-act="cardNext" aria-label="Next card"' + (i === deck.length - 1 ? ' disabled' : '') + '>›</button></div>' +
+      '<p class="small muted center">Swipe left or right · tap ✓ when you know it (+5 points)</p>';
+  }
+  function diagramsView(f) {
+    var free = DIAGRAMS.filter(function (d) { return d.field === f; }), pd = proDiagrams(f);
+    return backBar('Diagrams') + (free.concat(pd).map(function (d, i) { return '<button type="button" class="card diag-card" data-act="diagZoom" data-i="' + i + '"><h3>' + h(d.title) + (i >= free.length ? ' <span class="tag navy">Pro</span>' : '') + '</h3><div class="diagram">' + drawDiagram(d) + '</div><span class="small muted">Tap to open full screen</span></button>'; }).join('') || '<p class="muted">Diagrams for this field are coming.</p>') +
+      (!S.me.premium && f === 'HVAC/R' ? '<button type="button" class="card lock" data-act="goUpgrade"><h3>Heat pump, two-stage and zone valve wiring <span class="tag navy">Pro</span></h3><span class="small muted">Tap to see plans</span></button>' : '');
+  }
+  function rulesView(f) {
+    return backBar('Rule changes') + rulesFor(f).map(function (u) {
+      var isNew = Date.now() - new Date(u.created).getTime() < 45 * 86400000;
+      return '<div class="card rule" id="rules">' + bigArt(u.title, 'law', 'sm') + '<div><div class="spread"><h3>' + h(u.title) + '</h3>' + (isNew ? '<span class="tag warn">New</span>' : '') + '</div><div class="small muted">' + h(u.field) + (u.effective ? ' · effective ' + h(fmtDate(u.effective)) : '') + '</div><p style="margin-top:6px">' + h(u.body) + '</p><div class="row">' + (u.source ? '<a class="small" href="' + h(u.source) + '" target="_blank" rel="noopener">Source</a>' : '') + '<button type="button" class="ghost small-btn" data-act="sayRule" data-id="' + h(u.id) + '">Read to me</button></div></div></div>';
+    }).join('');
+  }
+  function afterLearnRender(force) {
+    var q = S.quiz;
+    if (q && q.list[q.i] && q.answered == null && autoRead() && (force || S._readQ !== q.i + ':' + q.list.length)) { S._readQ = q.i + ':' + q.list.length; var c = q.list[q.i]; sayNow(c.q + ' ' + c.o.map(function (o, k) { return String.fromCharCode(65 + k) + '. ' + o + '.'; }).join(' '), 'Question ' + (q.i + 1)); }
+    var fl = document.getElementById('flash');
+    if (fl) {
+      var x0 = null;
+      fl.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+      fl.addEventListener('touchend', function (e) { if (x0 == null) return; var dx = e.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 50) { e.preventDefault(); var b = document.querySelector('[data-act=' + (dx < 0 ? 'cardNext' : 'cardPrev') + ']'); if (b && !b.disabled) b.click(); } });
+      if (!S.cardFlip && autoRead() && (force || S._readC !== S.learnField + S.cardI)) { S._readC = S.learnField + S.cardI; var dc = deckFor(S.learnField)[S.cardI]; if (dc) sayNow(dc.t, dc.t); }
+    }
+  }
+  function carSheet() {
+    var f = S.learnField, ups = rulesFor(f);
+    var m = document.createElement('div'); m.className = 'modal';
+    m.innerHTML = '<div class="sheet"><h2 style="margin-top:0">Listen in the car</h2><p class="muted small">Plays out loud, one after another. Keep your screen on.</p><div class="tiles">' +
+      '<button type="button" class="tile sun" data-act="listen" data-what="ref"><span class="tile-art">' + ART.bulb + '</span><span class="tile-title">Flashcards</span><span class="tile-sub">Every card, read out</span></button>' +
+      '<button type="button" class="tile rose" data-act="listen" data-what="quiz"><span class="tile-art">' + ART.target + '</span><span class="tile-title">Quiz + answers</span><span class="tile-sub">Question, pause, answer</span></button>' +
+      (ups.length ? '<button type="button" class="tile sand" data-act="listen" data-what="ups"><span class="tile-art">' + ART.law + '</span><span class="tile-title">Rule changes</span><span class="tile-sub">' + ups.length + ' updates</span></button>' : '') +
+      '<button type="button" class="tile lav" data-act="listen" data-what="wisdom"><span class="tile-art">' + ART.mountain + '</span><span class="tile-title">Wisdom</span><span class="tile-sub">Short lessons</span></button>' +
+      '</div>' + (!S.me.premium ? '<p class="small muted">Pro adds the full exam-prep set to car mode.</p>' : '') + '<button type="button" class="ghost" data-close style="margin-top:10px">Close</button></div>';
+    m.addEventListener('click', function (ev) { if (ev.target === m || ev.target.hasAttribute('data-close') || ev.target.closest('[data-act=listen]')) m.remove(); });
+    document.body.appendChild(m);
+  }
+  function quizView() {
+    var q = S.quiz, cur = q.list[q.i];
+    if (!cur) {
+      var pct = q.list.length ? Math.round(q.score / q.list.length * 100) : 0, key = 'connect_best_' + q.field, prev = store(key);
+      if (!prev || parseInt(prev, 10) < pct) store(key, pct + '%');
+      var r = 54, circ = 2 * Math.PI * r;
+      return '<div class="done"><svg viewBox="0 0 140 140" width="180" height="180" role="img" aria-label="' + pct + ' percent"><circle cx="70" cy="70" r="' + r + '" fill="none" stroke="#E4DCC8" stroke-width="14"/><circle cx="70" cy="70" r="' + r + '" fill="none" stroke="' + (pct >= 70 ? '#2FA39A' : '#E8873A') + '" stroke-width="14" stroke-linecap="round" stroke-dasharray="' + (circ * pct / 100) + ' ' + circ + '" transform="rotate(-90 70 70)"/><text x="70" y="78" text-anchor="middle" font-size="30" font-weight="700" fill="#1B2951" font-family="Figtree,Arial">' + pct + '%</text></svg>' +
+        '<h1>' + (pct >= 90 ? 'Outstanding!' : pct >= 70 ? 'Nice work!' : 'Keep going!') + '</h1><p class="muted">' + q.score + ' of ' + q.list.length + ' right · +' + (q.score * 10) + ' points</p>' + xpBar() +
+        '<div class="row center-row"><button class="primary" data-act="startQuiz" data-n="' + q.n + '">Play again</button><button class="ghost" data-act="endQuiz">Back to Learn</button></div></div>';
+    }
+    var answered = q.answered != null, right = answered && q.answered === cur.a;
+    return '<div class="backbar"><button type="button" class="ghost icon-btn" data-act="endQuiz" aria-label="Stop quiz">✕</button><h1>' + h(q.field) + ' quiz</h1><label class="toggle"><input type="checkbox" data-act-change="autoRead"' + (autoRead() ? ' checked' : '') + '> Read to me</label></div>' +
+      '<div class="progress"><span style="width:' + Math.round(q.i / q.list.length * 100) + '%"></span></div><p class="small muted center">Question ' + (q.i + 1) + ' of ' + q.list.length + ' · ' + q.score + ' right</p>' +
+      '<div class="qcard">' + bigArt(cur.q + ' ' + cur.why, q.field, 'md') + '<p class="qtext">' + h(cur.q) + '</p><button type="button" class="link small" data-act="speakQ">Read it to me</button></div>' +
+      cur.o.map(function (o, k) {
+        var cls = !answered ? '' : (k === cur.a ? ' right' : (k === q.answered ? ' wrong' : ' dim'));
+        return '<button class="quiz-opt big' + cls + '" data-act="answer" data-k="' + k + '"' + (answered ? ' disabled' : '') + '><span class="letter">' + String.fromCharCode(65 + k) + '</span><span>' + h(o) + '</span></button>';
+      }).join('') +
+      (answered ? '<div class="feedback ' + (right ? 'ok' : 'no') + '"><b>' + (right ? 'Correct! +10' : 'Not quite.') + '</b> ' + h(cur.why) + '</div><button class="primary wide" data-act="nextQ">' + (q.i + 1 < q.list.length ? 'Next question' : 'See my score') + '</button>' : '');
+  }
+
   function drawDiagram(d) {
     var out = ['<svg viewBox="0 0 ' + d.w + ' ' + d.h + '" role="img" aria-label="' + h(d.title) + '" xmlns="http://www.w3.org/2000/svg"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="context-stroke"/></marker></defs>'];
     d.el.forEach(function (e) {
@@ -357,22 +466,6 @@
     out.push('</svg>');
     return out.join('');
   }
-  function quizView() {
-    var q = S.quiz, cur = q.list[q.i];
-    if (!cur) {
-      var pct = Math.round(q.score / q.list.length * 100), key = 'connect_best_' + q.field, prev = store(key);
-      if (!prev || parseInt(prev, 10) < pct) store(key, pct + '%');
-      return '<h1>Quiz done</h1><div class="card"><p style="font-size:22px"><b>' + q.score + ' of ' + q.list.length + '</b> (' + pct + '%)</p><div class="row"><button class="primary" data-act="startQuiz" data-n="' + q.n + '">Try again</button><button class="ghost" data-act="endQuiz">Back to Learn</button></div></div>';
-    }
-    return '<div class="spread"><h1 style="font-size:24px">' + h(q.field) + ' quiz</h1><span class="muted">' + (q.i + 1) + ' / ' + q.list.length + '</span></div>' +
-      '<div class="card"><p style="font-size:18px">' + h(cur.q) + '</p>' + cur.o.map(function (o, k) {
-        var cls = q.answered == null ? '' : (k === cur.a ? ' right' : (k === q.answered ? ' wrong' : ''));
-        return '<button class="quiz-opt' + cls + '" data-act="answer" data-k="' + k + '"' + (q.answered != null ? ' disabled' : '') + '>' + String.fromCharCode(65 + k) + '. ' + h(o) + '</button>';
-      }).join('') +
-      (q.answered != null ? '<div class="notice" style="margin-top:10px"><b>' + (q.answered === cur.a ? 'Correct.' : 'Not quite.') + '</b> ' + h(cur.why) + '</div><button class="primary" data-act="nextQ">' + (q.i + 1 < q.list.length ? 'Next question' : 'See score') + '</button> <button class="ghost" data-act="speakQ">Read aloud</button>' : '<button class="ghost" data-act="speakQ">Read aloud</button>') +
-      '</div><button class="link" data-act="endQuiz">Stop quiz</button>';
-  }
-
   /* resume */
   VIEWS.resume = function () {
     var r = S.me.resume || {}; r.exp = r.exp || []; r.edu = r.edu || [];
@@ -565,19 +658,33 @@
   };
 
   /* wisdom */
+  var WCOLORS = { Money: ['#1E6B57', '#E7F5EF'], Business: ['#1B2951', '#EAF0FB'], Career: ['#7A4E14', '#FBF1E1'], Mindset: ['#5B3C99', '#F1EBFB'], Habits: ['#A23B3B', '#FCECEC'], People: ['#16707A', '#E6F6F7'] };
   function dayIndex() { var n = new Date(), s0 = new Date(n.getFullYear(), 0, 0); return Math.floor((n - s0) / 86400000); }
   function wisdomOrder() { var w = S.wisdom; if (!w.length) return []; var i = dayIndex() % w.length; return w.slice(i).concat(w.slice(0, i)); }
-  function wisdomCard(x, big) { return '<div class="card" style="' + (big ? 'border-left:4px solid var(--gold)' : 'min-height:200px;scroll-snap-align:start;display:flex;flex-direction:column;justify-content:center') + '"><div class="small" style="letter-spacing:.06em;text-transform:uppercase;color:#7A5F22">' + h(x.c) + ' wisdom</div><div style="font:600 ' + (big ? '22' : '26') + 'px/1.2 \'Cormorant Garamond\',Georgia,serif;margin:4px 0 6px">' + h(x.t) + '</div><p style="margin:0">' + h(x.b) + '</p></div>'; }
-  function wisdomToday() { var w = wisdomOrder()[0]; return w ? wisdomCard(w, true) : ''; }
+  function savedKey() { return 'connect_saved_' + (S.me && S.me.email || ''); }
+  function savedList() { try { return JSON.parse(store(savedKey()) || '[]'); } catch (e) { return []; } }
+  function wisdomToday() {
+    var w = wisdomOrder()[0]; if (!w) return '';
+    var col = WCOLORS[w.c] || WCOLORS.Business;
+    return '<button type="button" class="wis-mini" style="background:' + col[1] + '" data-act="goWisdom"><span class="wis-mini-art">' + window.artFor(w.t + ' ' + w.b, w.c) + '</span><span><span class="wis-cat" style="color:' + col[0] + '">Today\'s wisdom · ' + h(w.c) + '</span><b class="wis-mini-title">' + h(w.t) + '</b><span class="small muted">Tap to swipe more</span></span></button>';
+  }
   VIEWS.wisdom = function () {
     var cats = []; S.wisdom.forEach(function (x) { if (cats.indexOf(x.c) < 0) cats.push(x.c); });
-    var cf = S.wisdomCat || 'All';
-    var list = wisdomOrder().filter(function (x) { return cf === 'All' || x.c === cf; });
-    return '<h1>Wisdom</h1><p class="muted">Short lessons on money, business, career and getting ahead. Scroll, or play them out loud.</p>' +
-      '<div class="row" style="margin-bottom:12px">' + ['All'].concat(cats).map(function (c) { return '<button class="' + (c === cf ? 'primary' : 'ghost') + '" data-act="wisdomCat" data-v="' + h(c) + '">' + h(c) + '</button>'; }).join('') + '</div>' +
-      '<button class="gold" data-act="listen" data-what="wisdom" style="margin-bottom:12px">Play all out loud</button>' +
-      '<div style="max-height:70vh;overflow-y:auto;scroll-snap-type:y mandatory">' + list.map(function (x) { return wisdomCard(x, false); }).join('') + '</div>';
+    var cf = S.wisdomCat || 'All', saved = savedList();
+    var list = wisdomOrder().filter(function (x) { return cf === 'All' ? true : cf === 'Saved' ? saved.indexOf(x.t) > -1 : x.c === cf; });
+    return '<h1 class="sr-only">Wisdom</h1><div class="chips wis-chips">' + ['All', 'Saved'].concat(cats).map(function (c) { return '<button type="button" class="chip' + (c === cf ? ' on' : '') + '" data-act="wisdomCat" data-v="' + h(c) + '">' + (c === 'Saved' ? '♥ ' : '') + h(c) + (c === 'Saved' ? ' (' + saved.length + ')' : '') + '</button>'; }).join('') + '</div>' +
+      '<div class="wis-feed" id="wisFeed">' + (list.map(function (x, i) {
+        var col = WCOLORS[x.c] || WCOLORS.Business, isSaved = saved.indexOf(x.t) > -1;
+        return '<article class="wis-card" data-i="' + i + '" style="background:' + col[1] + '"><div class="wis-art">' + window.artFor(x.t + ' ' + x.b, x.c) + '</div>' +
+          '<div class="wis-text"><span class="wis-cat" style="color:' + col[0] + '">' + h(x.c) + ' wisdom</span><h2 class="wis-title" style="color:' + col[0] + '">' + h(x.t) + '</h2><p class="wis-body">' + h(x.b) + '</p></div>' +
+          '<div class="wis-actions"><button type="button" class="round" data-act="wisSay" data-i="' + i + '" aria-label="Read out loud"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM16 8a5 5 0 0 1 0 8M18.5 5.5a8.5 8.5 0 0 1 0 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>' +
+          '<button type="button" class="round' + (isSaved ? ' saved' : '') + '" data-act="wisHeart" data-t="' + h(x.t) + '" aria-pressed="' + isSaved + '" aria-label="' + (isSaved ? 'Remove from saved' : 'Save') + '">♥</button>' +
+          '<button type="button" class="round" data-act="wisShare" data-i="' + i + '" aria-label="Share"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 14v6h14v-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>' +
+          (i === 0 ? '<div class="swipe-hint">Swipe up for the next one ↑</div>' : '') + '</article>';
+      }).join('') || '<p class="muted" style="padding:20px">Nothing saved yet. Tap ♥ on a card to keep it here.</p>') + '</div>' +
+      '<button type="button" class="gold play-fab" data-act="wisPlayAll" aria-label="Play all out loud">▶ Play all</button>';
   };
+  function wisList() { var cf = S.wisdomCat || 'All', saved = savedList(); return wisdomOrder().filter(function (x) { return cf === 'All' ? true : cf === 'Saved' ? saved.indexOf(x.t) > -1 : x.c === cf; }); }
 
   /* ---------------- car mode (speech) */
   var P = { q: [], i: 0, playing: false, timer: null };
@@ -595,6 +702,7 @@
     var it = P.q[P.i];
     if (!it) { document.getElementById('plNow').textContent = 'Finished: ' + P.label; P.playing = false; document.getElementById('plPlay').textContent = '▶'; return; }
     document.getElementById('plNow').textContent = it.show || it.text;
+    if (it.onstart) try { it.onstart(); } catch (e) {}
     var u = new SpeechSynthesisUtterance(it.text);
     if (it.lang) u.lang = it.lang;
     u.rate = Number(document.getElementById('plRate').value) || 1;
@@ -667,16 +775,32 @@
         var un = S.unions.filter(function (x) { return x.id === id; })[0]; if (!un) return;
         return saveItem('track', { unionId: un.id, title: 'Apply: ' + un.name, company: un.name, category: un.trade === 'All' ? 'Other' : un.trade, status: 'Saved', followUp: un.deadline || '', url: un.website, notes: un.deadlineNote || '' }, el);
       }
-      case 'openUpdates': S.learnField = S.me.specialty; go('learn'); setTimeout(function () { var r = document.getElementById('rules'); if (r) r.scrollIntoView(); }, 50); return;
+      case 'openUpdates': S.learnField = S.me.specialty; S.learnMode = 'rules'; go('learn'); setTimeout(function () { var r = document.getElementById('rules'); if (r) r.scrollIntoView(); }, 50); return;
       case 'startQuiz': {
         var f = S.learnField, L = LEARN[f] || { quiz: [] }, n = Number(el.getAttribute('data-n'));
         var pool = n > 100 ? L.quiz.concat(proQuiz(f)) : L.quiz.concat(S.me.premium ? proQuiz(f) : []);
         S.quiz = { field: f, list: shuffle(pool).slice(0, n), i: 0, score: 0, answered: null, n: n }; return render();
       }
-      case 'answer': { var q = S.quiz; if (q.answered != null) return; q.answered = Number(el.getAttribute('data-k')); if (q.answered === q.list[q.i].a) q.score++; return render(); }
+      case 'answer': { var q = S.quiz; if (q.answered != null) return; q.answered = Number(el.getAttribute('data-k')); var good = q.answered === q.list[q.i].a; if (good) { q.score++; xpAdd(10); } render(); if (autoRead()) sayNow((good ? 'Correct. ' : 'Not quite. The answer is ' + q.list[q.i].o[q.list[q.i].a] + '. ') + q.list[q.i].why, 'Answer'); return; }
       case 'nextQ': S.quiz.i++; S.quiz.answered = null; render(); window.scrollTo(0, 0); return;
+      case 'fieldChip': S.learnField = el.getAttribute('data-f'); S.quiz = null; S.learnMode = 'hub'; S.cardI = 0; S.cardFlip = false; return render();
+      case 'learnMode': S.learnMode = el.getAttribute('data-m'); S.cardI = 0; S.cardFlip = false; if (S.learnMode === 'hub') S.quiz = null; render(); window.scrollTo(0, 0); return;
+      case 'openCar': return carSheet();
+      case 'goWisdom': return go('wisdom');
+      case 'goUpgrade': return go('upgrade');
+      case 'cardFlip': S.cardFlip = !S.cardFlip; render(); if (S.cardFlip && autoRead()) { var dc = deckFor(S.learnField)[S.cardI]; sayNow(dc.b, dc.t); } return;
+      case 'cardPrev': if (S.cardI > 0) { S.cardI--; S.cardFlip = false; render(); } return;
+      case 'cardNext': if (S.cardI < deckFor(S.learnField).length - 1) { S.cardI++; S.cardFlip = false; render(); } return;
+      case 'cardGot': { xpAdd(5); var dk = deckFor(S.learnField); if (S.cardI < dk.length - 1) { S.cardI++; S.cardFlip = false; render(); toast('+5 points'); } else { toast('Deck done! +5 points'); S.learnMode = 'hub'; render(); } return; }
+      case 'cardSpeak': { var cc = deckFor(S.learnField)[S.cardI]; return sayNow(cc.t + '. ' + cc.b, cc.t); }
+      case 'diagZoom': { var all = DIAGRAMS.filter(function (d) { return d.field === S.learnField; }).concat(proDiagrams(S.learnField)); var dg = all[Number(el.getAttribute('data-i'))]; if (!dg) return; var mz = document.createElement('div'); mz.className = 'modal'; mz.innerHTML = '<div class="sheet" style="background:#fff"><h2 style="margin-top:0">' + h(dg.title) + '</h2><div class="diagram zoom">' + drawDiagram(dg) + '</div><p class="small muted">Turn your phone sideways or pinch to zoom.</p><button class="primary" data-close>Close</button></div>'; mz.addEventListener('click', function (ev) { if (ev.target === mz || ev.target.hasAttribute('data-close')) mz.remove(); }); document.body.appendChild(mz); return; }
+      case 'sayRule': { var ru = S.updates.filter(function (u) { return u.id === id; })[0]; if (ru) sayNow(ru.title + '. ' + ru.body, ru.title); return; }
+      case 'wisSay': { var wx = wisList()[Number(el.getAttribute('data-i'))]; if (wx) { xpAdd(2); sayNow(wx.t + '. ' + wx.b, wx.t); } return; }
+      case 'wisHeart': { var t2 = el.getAttribute('data-t'), sv = savedList(), ix = sv.indexOf(t2); if (ix > -1) sv.splice(ix, 1); else { sv.push(t2); xpAdd(2); } store(savedKey(), JSON.stringify(sv)); el.classList.toggle('saved', ix < 0); el.setAttribute('aria-pressed', String(ix < 0)); toast(ix < 0 ? 'Saved' : 'Removed'); return; }
+      case 'wisShare': { var ws = wisList()[Number(el.getAttribute('data-i'))]; if (!ws) return; var txt = ws.t + ' — ' + ws.b + ' (Connect: ' + location.origin + location.pathname.replace(/member\/?$/, '') + ')'; if (navigator.share) navigator.share({ title: ws.t, text: txt }).catch(function () {}); else { try { navigator.clipboard.writeText(txt); toast('Copied to share'); } catch (e) {} } return; }
+      case 'wisPlayAll': { var feed = document.getElementById('wisFeed'); var items2 = wisList().map(function (x, i) { return { text: x.t + '. ' + x.b, show: x.t, pause: 1500, onstart: function () { var cardEl = feed && feed.querySelector('.wis-card[data-i="' + i + '"]'); if (cardEl && cardEl.scrollIntoView) cardEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }; }); return playList(items2, 'Wisdom'); }
       case 'speakQ': { var cq = S.quiz.list[S.quiz.i]; var parts = quizToSpeech([cq]); playList(S.quiz.answered != null ? parts : [parts[0]], 'This question'); return; }
-      case 'endQuiz': S.quiz = null; return render();
+      case 'endQuiz': S.quiz = null; S.learnMode = 'hub'; stopPlayer(); return render();
       case 'addExp': document.getElementById('expList').insertAdjacentHTML('beforeend', expRow()); return;
       case 'addEdu': document.getElementById('eduList').insertAdjacentHTML('beforeend', eduRow()); return;
       case 'rmRow': el.closest('.card').remove(); return;
@@ -724,7 +848,8 @@
       return;
     }
     var a = el.getAttribute('data-act-change');
-    if (a === 'learnField') { S.learnField = el.value; S.quiz = null; render(); }
+    if (a === 'learnField') { S.learnField = el.value; S.quiz = null; S.learnMode = 'hub'; render(); }
+    if (a === 'autoRead') { store('connect_autoread', el.checked ? '1' : '0'); if (el.checked) afterLearnRender(true); else stopPlayer(); }
     if (a === 'logYear') { S.logYear = el.value; render(); }
   });
 

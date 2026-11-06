@@ -96,6 +96,87 @@ table.simple th,table.simple td{text-align:left;padding:6px 8px;border-bottom:1p
 .resume-sheet h4{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#1B2951;border-bottom:2px solid #1F6F78;margin:14px 0 6px;padding-bottom:2px}
 .resume-sheet ul{margin:4px 0 6px 18px;padding:0}
 .resume-sheet .job{display:flex;justify-content:space-between;gap:8px;font-weight:700}
+
+/* ---- app-style navigation ---- */
+body{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+.bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:45;background:#fff;border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -4px 16px rgba(27,41,81,.08)}
+.bottom-nav button{flex:1;background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;font:600 12px/1.1 Figtree,sans-serif;color:var(--muted);min-height:56px;padding:4px 0;border-radius:12px}
+.bn-icon{width:30px;height:30px;display:block;filter:grayscale(1);opacity:.7}
+.bn-icon svg{width:100%;height:100%}
+.bottom-nav button[aria-current="page"]{color:var(--navy)}
+.bottom-nav button[aria-current="page"] .bn-icon{filter:none;opacity:1;transform:scale(1.08)}
+.player{bottom:calc(68px + env(safe-area-inset-bottom))!important;border-radius:14px 14px 0 0}
+.sr-only{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.center{text-align:center}.center-row{justify-content:center}
+/* ---- tiles ---- */
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:12px 0}
+.small-tiles{grid-template-columns:repeat(3,1fr);gap:10px}
+.tile{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;border:0;border-radius:20px;padding:14px;min-height:150px;cursor:pointer;box-shadow:0 2px 0 rgba(27,41,81,.06);transition:transform .12s}
+.small-tiles .tile{min-height:104px;align-items:center;text-align:center;padding:10px 6px}
+.tile:active{transform:scale(.97)}
+.tile-art{width:64px;height:64px;display:block}.small-tiles .tile-art{width:52px;height:52px}
+.tile-art svg,.chip-art svg,.art svg{width:100%;height:100%;display:block}
+.tile-title{font:700 17px/1.2 Figtree,sans-serif;color:var(--ink);margin-top:4px}.small-tiles .tile-title{font-size:14px}
+.tile-sub{font-size:13px;color:var(--muted)}
+.tile .badge{position:absolute;top:10px;right:10px;background:var(--navy);color:#fff;font:700 11px Figtree,sans-serif;border-radius:999px;padding:3px 8px}
+.tile.sun{background:#FFF6DC}.tile.rose{background:#FDE8EA}.tile.sky{background:#E6F0FC}.tile.mint{background:#E2F4EE}.tile.sand{background:#F6EEDC}.tile.lav{background:#EFE8FA}
+.tile.navy{background:var(--navy)}.tile.navy .tile-title{color:#fff}.tile.navy .tile-sub{color:#E6DDC8}.tile.navy .badge{background:var(--gold);color:var(--navy)}
+/* ---- chips + points ---- */
+.chips{display:flex;gap:8px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 14px 6px 6px;min-height:44px;font:600 14px Figtree,sans-serif;color:var(--ink);cursor:pointer}
+.chip-art{width:30px;height:30px;display:block}.wis-chips .chip{padding:6px 14px}
+.chip.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.xpbar{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 8px}
+.xp-chip{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:14px}
+.goal{display:inline-flex;gap:3px;margin-left:4px}.goal i{width:10px;height:10px;border-radius:50%;background:var(--line);display:inline-block}.goal i.on{background:#2FA39A}
+.feature{display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:#fff;border:1px solid var(--line);border-radius:18px;padding:12px;cursor:pointer;font:inherit;color:inherit}
+.art.sm{width:64px;height:64px;flex:0 0 64px}.art.md{width:120px;height:120px;margin:0 auto 6px}.art.xl{width:min(62vw,240px);height:min(62vw,240px);margin:0 auto}
+/* ---- back bar, progress ---- */
+.backbar{display:flex;align-items:center;gap:10px;margin-bottom:8px}.backbar h1{flex:1;font-size:24px;margin:0}
+.icon-btn{min-width:44px;font-size:26px;padding:0}
+.toggle{display:inline-flex;align-items:center;gap:6px;font-size:13px;margin:0;font-weight:600}.toggle input{width:20px;min-height:20px;height:20px}
+.progress{height:10px;background:var(--line);border-radius:999px;overflow:hidden}.progress span{display:block;height:100%;background:linear-gradient(90deg,#2FA39A,#C9A961);border-radius:999px;transition:width .3s}
+/* ---- flashcards ---- */
+.flash{background:#fff;border-radius:26px;box-shadow:0 10px 30px rgba(27,41,81,.12);padding:22px 18px;min-height:52vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;cursor:pointer;margin:10px 0;user-select:none;-webkit-tap-highlight-color:transparent}
+.flash.flipped{background:var(--navy);color:var(--cream)}
+.flash-title{font:600 28px/1.15 "Cormorant Garamond",Georgia,serif;margin-top:12px}.flash-title.sm{font-size:22px;color:var(--gold)}
+.flash-body{font-size:19px;line-height:1.5;margin-top:10px}
+.flash-hint{font-size:13px;opacity:.6;margin-top:14px}
+.flash-actions{display:flex;justify-content:center;gap:14px}
+.round{width:58px;height:58px;min-height:58px;border-radius:50%;padding:0;background:#fff;border:1px solid var(--line);color:var(--navy);font-size:26px;box-shadow:0 2px 6px rgba(27,41,81,.08)}
+.round.gold{background:var(--gold);border-color:var(--gold);color:var(--navy);font-weight:700}
+.round.saved{background:#FDE8EA;color:#D9534F;border-color:#F3C2C8}
+.round:disabled{opacity:.35}
+/* ---- quiz ---- */
+.qcard{background:#fff;border-radius:22px;padding:16px;text-align:center;margin:10px 0;box-shadow:0 6px 18px rgba(27,41,81,.08)}
+.qtext{font:700 20px/1.35 Figtree,sans-serif;margin:4px 0}
+.quiz-opt.big{display:flex;align-items:center;gap:12px;border-radius:16px;min-height:60px;font-size:17px;margin:8px 0;padding:10px 14px}
+.quiz-opt .letter{flex:0 0 34px;height:34px;border-radius:50%;background:var(--gold-wash);color:var(--navy);display:flex;align-items:center;justify-content:center;font-weight:700}
+.quiz-opt.right .letter{background:#2FA39A;color:#fff}.quiz-opt.wrong .letter{background:#D9534F;color:#fff}.quiz-opt.dim{opacity:.55}
+.feedback{border-radius:16px;padding:14px;margin:10px 0;font-size:16px}.feedback.ok{background:#E2F4EE}.feedback.no{background:#FDE8EA}
+.wide{width:100%;min-height:56px;font-size:17px}
+.done{text-align:center;padding-top:10px}.done h1{margin-top:6px}
+.diag-card{display:block;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.diagram.zoom svg{min-width:720px}
+.rule{display:flex;gap:12px;align-items:flex-start}
+.small-btn{min-height:36px;font-size:13px;padding:0 10px}
+/* ---- wisdom feed ---- */
+.wis-mini{display:flex;align-items:center;gap:14px;width:100%;text-align:left;border:0;border-radius:20px;padding:14px;margin:0 0 12px;cursor:pointer;font:inherit;color:inherit}
+.wis-mini-art{width:72px;height:72px;flex:0 0 72px}.wis-mini-art svg{width:100%;height:100%}
+.wis-mini-title{display:block;font:600 22px/1.15 "Cormorant Garamond",Georgia,serif;margin:2px 0}
+.wis-cat{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:700}
+body.feed-mode main{padding-top:6px;padding-bottom:0}
+.wis-feed{height:calc(100dvh - 56px - 62px - 84px - env(safe-area-inset-bottom));overflow-y:auto;scroll-snap-type:y mandatory;border-radius:24px;scrollbar-width:none}
+.wis-feed::-webkit-scrollbar{display:none}
+.wis-card{position:relative;height:100%;scroll-snap-align:start;scroll-snap-stop:always;display:flex;flex-direction:column;justify-content:center;padding:22px 78px 22px 22px;box-sizing:border-box;border-radius:24px;margin-bottom:10px}
+.wis-art{width:min(48vw,200px);height:min(48vw,200px);margin-bottom:14px}.wis-art svg{width:100%;height:100%}
+.wis-title{font:600 34px/1.1 "Cormorant Garamond",Georgia,serif;margin:6px 0 10px}
+.wis-body{font-size:19px;line-height:1.5;margin:0}
+.wis-actions{position:absolute;right:12px;bottom:28px;display:flex;flex-direction:column;gap:12px}
+.swipe-hint{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:13px;color:var(--muted);animation:bob 1.6s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(-6px)}}
+.play-fab{position:fixed;right:16px;bottom:calc(96px + env(safe-area-inset-bottom));z-index:44;border-radius:999px;min-height:52px;padding:0 20px;box-shadow:0 6px 18px rgba(27,41,81,.25)}
+@media (prefers-reduced-motion: reduce){.swipe-hint{animation:none}.tile{transition:none}}
 [hidden]{display:none!important}
 @media print{
   body{background:#fff;padding:0}
@@ -125,11 +206,13 @@ table.simple th,table.simple td{text-align:left;padding:6px 8px;border-bottom:1p
 <button type="button" id="plStop" aria-label="Stop">✕</button>
 </div>
 </div>
+<nav class="bottom-nav" id="bottomNav" aria-label="Main" hidden></nav>
 <div id="printArea" aria-hidden="true"></div>
 <script src="../i18n.js"></script>
-<script src="config.js?v=3"></script>
+<script src="config.js?v=4"></script>
 <script src="qrcode.js"></script>
+<script src="art.js"></script>
 <script src="learn.js"></script>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
