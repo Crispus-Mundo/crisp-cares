@@ -9,7 +9,7 @@
  * Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone).
  */
 
-var APP_VERSION = 'connect-members v1.2 — 2026-11-06';
+var APP_VERSION = 'connect-members v1.3 — 2026-11-06';
 var ADMINS = ['crispcleaninc@gmail.com']; // ccyars26 is a regular member account by choice
 var APP_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/member/';
 var HUB_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/';
@@ -128,6 +128,7 @@ function route_(action, r) {
     case 'saveItem': return saveItem_(me, r.kind, r.item || {});
     case 'sync': return sync_(me, r.ops || []);
     case 'importJobs': return importJobs_(me);
+    case 'tailorResume': return tailorResume_(me, r.job || {});
     case 'deleteItem': return deleteItem_(me, r.id);
     case 'uploadFile': return uploadFile_(me, r);
     case 'getFile': return getFile_(me, r.fileId);
@@ -305,6 +306,7 @@ function myItems_(email) {
 }
 
 function loadAll_(m) {
+  try { ensureLegalProduct_(); } catch (e) {}
   return {
     me: publicMe_(m), jobs: listJobs_(m), items: myItems_(m.email), specialties: SPECIALTIES, version: APP_VERSION,
     updates: listUpdates_(), unions: listUnions_(), wisdom: WISDOM, resources: listResources_(), langs: LANGS, aiOn: !!(PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY') || PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')), plans: activeRows_('Plans'), products: activeRows_('Products'),
@@ -672,6 +674,7 @@ function broadcast_(me, r) {
   logEvent_(me.email, 'broadcast', subject + ' -> ' + list.length);
   return { sent: list.length, mailQuotaLeft: MailApp.getRemainingDailyQuota() };
 }
+
 /**
  * Connect — rule updates, paid plans, shop and orders.
  * Prices, pay links and products are edited in the "Plans" and "Products" tabs of Connect Members DB.
@@ -692,6 +695,7 @@ function seedCatalog_(ss) {
     { id: 'PM', name: 'Monthly autopay (card on file)', months: 1, price: 39, note: 'Billed every month to your card until you cancel', payLink: '', recurring: true, active: true, order: 4 }
   ]);
   seed('Products', [
+    LEGAL_PRODUCT,
     { id: 'S1', name: 'Tax return preparation', business: 'Crisp Clean', description: 'Your personal return prepared and reviewed. Start online and upload your documents.', price: 'From $150', link: 'https://script.google.com/macros/s/AKfycbzmI15RFTtntWe2eQaV-5nDaxVswtmttfMC3gV2qaPCTru5cV-aodWs7rGtr5GJOayGsg/exec?p=client&src=connect', active: true, order: 1 },
     { id: 'S2', name: 'AI tax prep software for preparers', business: 'Crisp Clean', description: 'Season license for tax preparers: documents keyed for you, flagged for review, you sign off.', price: '$499 per season', link: 'https://script.google.com/macros/s/AKfycbzmI15RFTtntWe2eQaV-5nDaxVswtmttfMC3gV2qaPCTru5cV-aodWs7rGtr5GJOayGsg/exec?p=pro&src=connect', active: true, order: 2 },
     { id: 'S3', name: 'Tax plan + client planner portal', business: 'Crisp Clean', description: 'A year-round tax plan with your own planner portal: net worth, documents and next steps in one place.', price: 'Ask for pricing', link: '', active: true, order: 3 },
@@ -704,6 +708,17 @@ function seedCatalog_(ss) {
     { id: 'U1', field: 'EPA 608', title: 'R-410A: the January 1, 2026 installation deadline was removed', body: 'Since January 1, 2025, new residential and light-commercial AC and heat pump systems can no longer be made or imported with refrigerants above 700 GWP (R-410A is about 2,088). The 2023 rule also said leftover R-410A equipment had to be installed by January 1, 2026. EPA removed that installation deadline in a final rule issued May 21, 2026 (effective July 27, 2026) for equipment made or imported before January 1, 2025. Servicing existing R-410A systems with R-410A is still legal. New York kept the 2026 deadline under its own state rule. VRF/VRV systems made before January 1, 2026 still have to be installed by January 1, 2027.', effective: '2026-07-27', source: 'https://www.achrnews.com/articles/166226-epa-removes-r-410a-installation-deadline', created: new Date(), postedBy: 'setup' },
     { id: 'U2', field: 'EPA 608', title: 'Leak repair now covers HFC systems with 15 lb or more', body: 'Older 608 study material teaches leak repair for ozone-depleting refrigerants at 50 lb or more. Under EPA\'s 2024 Emissions Reduction and Reclamation rule (40 CFR Part 84), starting January 1, 2026, appliances holding 15 lb or more of an HFC refrigerant (GWP above 53) have leak repair, inspection and recordkeeping requirements. Residential and light-commercial AC and heat pumps are not included. Reclaimed HFC refrigerant may contain no more than 15% virgin HFC by weight. EPA has said it is reconsidering parts of this rule, so watch this space.', effective: '2026-01-01', source: 'https://www.epa.gov/system/files/documents/2026-01/er-r-fact-sheet-leak-repair-2026-01-13_1.pdf', created: new Date(), postedBy: 'setup' }
   ]);
+}
+
+
+/* Law Analyzer (added Nov 6, 2026). seedCatalog_ only fills an empty tab, so this adds the row once to a live sheet. */
+var LEGAL_PRODUCT = { id: 'S8', name: 'Law Analyzer — legal help', business: 'Crispus Mundo', description: 'Legal help? Looking for an attorney? Start here. Upload your court papers, letters and photos. The Law Analyzer reads them, builds your timeline and court dates, shows what is missing, lays out your next steps under your state\'s court rules, and drafts documents for you to review. Includes "Find an attorney" help with where to file and what to bring to a consult. It is a software tool, not a law firm: it does not give legal advice or represent you.', price: '$39.99 per month', link: '', active: true, order: 0.5, payLink: '' };
+function ensureLegalProduct_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('LEGAL_PRODUCT_V1')) return;
+  var has = rows_('Products').some(function (r) { return r.id === LEGAL_PRODUCT.id; });
+  if (!has) append_('Products', LEGAL_PRODUCT);
+  props.setProperty('LEGAL_PRODUCT_V1', '1');
 }
 
 function activeRows_(name) {
@@ -823,6 +838,7 @@ function premium_(m) {
   if (!isPremium_(m)) fail_('This is part of Connect Pro. Choose a plan under Upgrade to open it.');
   return { premium: PREMIUM_CONTENT };
 }
+
 /**
  * Connect Pro content — only sent to members with active Pro (or admins).
  * Diagrams use the same element format as the free ones in learn.js:
@@ -924,6 +940,7 @@ var PREMIUM_CONTENT = {
     ]
   }
 };
+
 /**
  * Connect — unions directory, wisdom feed and email digests.
  * Unions live in the "Unions" tab of Connect Members DB; edit rows there as dates are announced.
@@ -1079,6 +1096,7 @@ function runDigests_() {
     m.lastDigest = now; write_('Members', m);
   });
 }
+
 /**
  * Connect — "Ask me anything", community resources, quotes with payment options and proof of need.
  * AI answers need ONE key in Script Properties: ANTHROPIC_API_KEY (Claude) or GEMINI_API_KEY (Google).
@@ -1212,6 +1230,7 @@ function orderDocOwned_(m, fileId) {
     return d.some(function (x) { return x.id === fileId; });
   });
 }
+
 /* ------------------------------------------------------------------ v1.2: offline sync, extra fields, curated jobs */
 
 var JOB_SOURCE = 'Found by Lamira Clean (Southfield)';
@@ -1327,3 +1346,40 @@ function importJobs_(me) {
   logEvent_(me.email, 'importJobs', added + ' added');
   return { added: added, jobs: listJobs_(me) };
 }
+
+
+/* ------------------------------------------------------------------ v1.3: resume tailored to one job */
+// Rewrites the member's own resume for a specific job. Never invents jobs, schools, licenses or dates.
+function tailorResume_(m, job) {
+  var me = rows_('Members').filter(function (x) { return x.email === m.email; })[0];
+  var resume = {}; try { resume = me.resume ? JSON.parse(me.resume) : {}; } catch (e) {}
+  if (!resume.summary && !(resume.exp || []).length) fail_('Fill in your resume first (Resume tab), then tailor it.');
+  var certs = myItems_(m.email).filter(function (i) { return i.kind === 'cert'; }).map(function (c) { return c.name + (c.expires ? ' (exp ' + c.expires + ')' : ''); });
+  var jobText = ['Title: ' + clean_(job.title, 120), 'Company: ' + clean_(job.company, 100), 'Location: ' + clean_(job.location, 80), 'Pay: ' + clean_(job.pay, 60),
+    'Description: ' + clean_(job.description, 1500), 'Requirements: ' + clean_(job.requirements, 1000)].join('\n');
+  var system = 'You tailor a tradesperson\'s resume to one job posting. Use ONLY facts in the resume and license list. Never add employers, dates, schools, licenses, tools or numbers that are not given. ' +
+    'Reword bullets to match the posting\'s language where the facts support it, lead with the most relevant experience, and keep plain, confident wording at an 8th-grade reading level. ' +
+    'Reply with JSON only: {"headline":string,"summary":string (2-3 sentences),"skills":string (comma list, only supported skills),"exp":[{"title","company","start","end","bullets" (newline separated)}],"tips":[string] (2-4 short tips on what to mention or add if true),"cover":string (a short cover note, 120 words max, no fake claims)}';
+  var user = 'JOB POSTING:\n' + jobText + '\n\nRESUME (JSON):\n' + JSON.stringify(resume).slice(0, 9000) + '\n\nLICENSES ON FILE:\n' + (certs.join('; ') || 'none listed') + '\n\nName: ' + (me.name || '');
+  var out = null, mode = 'ai';
+  try { out = callAI_(system, [{ role: 'user', content: user }]); } catch (e) { logEvent_(m.email, 'tailorErr', e.message); out = null; }
+  if (!out || !out.summary) { mode = 'basic'; out = basicTailor_(resume, job); }
+  logEvent_(m.email, 'tailorResume', mode + ' ' + clean_(job.title, 60));
+  return { tailored: out, mode: mode };
+}
+
+// No AI key: reorder bullets and skills by overlap with the posting's words.
+function basicTailor_(resume, job) {
+  var words = String((job.title || '') + ' ' + (job.description || '') + ' ' + (job.requirements || '')).toLowerCase().match(/[a-z0-9\-]{3,}/g) || [];
+  var set = {}; words.forEach(function (w) { set[w] = 1; });
+  function score(t) { return (String(t).toLowerCase().match(/[a-z0-9\-]{3,}/g) || []).filter(function (w) { return set[w]; }).length; }
+  var exp = (resume.exp || []).map(function (x) {
+    var b = String(x.bullets || '').split('\n').filter(Boolean).sort(function (a, c) { return score(c) - score(a); }).join('\n');
+    return { title: x.title, company: x.company, start: x.start, end: x.end, bullets: b, _s: score(x.title + ' ' + x.bullets) };
+  }).sort(function (a, b) { return b._s - a._s; });
+  var skills = String(resume.skills || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).sort(function (a, b) { return score(b) - score(a); }).join(', ');
+  return { headline: resume.headline || job.title, summary: resume.summary || '', skills: skills, exp: exp, edu: resume.edu || [],
+    tips: ['Add the exact license names the posting asks for, if you hold them.', 'Mention hours toward your license and any tools you own.'],
+    cover: 'I\'m applying for the ' + (job.title || 'open') + ' role' + (job.company ? ' at ' + job.company : '') + '. ' + (resume.summary || '') };
+}
+

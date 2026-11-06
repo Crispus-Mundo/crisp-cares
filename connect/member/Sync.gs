@@ -113,3 +113,39 @@ function importJobs_(me) {
   logEvent_(me.email, 'importJobs', added + ' added');
   return { added: added, jobs: listJobs_(me) };
 }
+
+
+/* ------------------------------------------------------------------ v1.3: resume tailored to one job */
+// Rewrites the member's own resume for a specific job. Never invents jobs, schools, licenses or dates.
+function tailorResume_(m, job) {
+  var me = rows_('Members').filter(function (x) { return x.email === m.email; })[0];
+  var resume = {}; try { resume = me.resume ? JSON.parse(me.resume) : {}; } catch (e) {}
+  if (!resume.summary && !(resume.exp || []).length) fail_('Fill in your resume first (Resume tab), then tailor it.');
+  var certs = myItems_(m.email).filter(function (i) { return i.kind === 'cert'; }).map(function (c) { return c.name + (c.expires ? ' (exp ' + c.expires + ')' : ''); });
+  var jobText = ['Title: ' + clean_(job.title, 120), 'Company: ' + clean_(job.company, 100), 'Location: ' + clean_(job.location, 80), 'Pay: ' + clean_(job.pay, 60),
+    'Description: ' + clean_(job.description, 1500), 'Requirements: ' + clean_(job.requirements, 1000)].join('\n');
+  var system = 'You tailor a tradesperson\'s resume to one job posting. Use ONLY facts in the resume and license list. Never add employers, dates, schools, licenses, tools or numbers that are not given. ' +
+    'Reword bullets to match the posting\'s language where the facts support it, lead with the most relevant experience, and keep plain, confident wording at an 8th-grade reading level. ' +
+    'Reply with JSON only: {"headline":string,"summary":string (2-3 sentences),"skills":string (comma list, only supported skills),"exp":[{"title","company","start","end","bullets" (newline separated)}],"tips":[string] (2-4 short tips on what to mention or add if true),"cover":string (a short cover note, 120 words max, no fake claims)}';
+  var user = 'JOB POSTING:\n' + jobText + '\n\nRESUME (JSON):\n' + JSON.stringify(resume).slice(0, 9000) + '\n\nLICENSES ON FILE:\n' + (certs.join('; ') || 'none listed') + '\n\nName: ' + (me.name || '');
+  var out = null, mode = 'ai';
+  try { out = callAI_(system, [{ role: 'user', content: user }]); } catch (e) { logEvent_(m.email, 'tailorErr', e.message); out = null; }
+  if (!out || !out.summary) { mode = 'basic'; out = basicTailor_(resume, job); }
+  logEvent_(m.email, 'tailorResume', mode + ' ' + clean_(job.title, 60));
+  return { tailored: out, mode: mode };
+}
+
+// No AI key: reorder bullets and skills by overlap with the posting's words.
+function basicTailor_(resume, job) {
+  var words = String((job.title || '') + ' ' + (job.description || '') + ' ' + (job.requirements || '')).toLowerCase().match(/[a-z0-9\-]{3,}/g) || [];
+  var set = {}; words.forEach(function (w) { set[w] = 1; });
+  function score(t) { return (String(t).toLowerCase().match(/[a-z0-9\-]{3,}/g) || []).filter(function (w) { return set[w]; }).length; }
+  var exp = (resume.exp || []).map(function (x) {
+    var b = String(x.bullets || '').split('\n').filter(Boolean).sort(function (a, c) { return score(c) - score(a); }).join('\n');
+    return { title: x.title, company: x.company, start: x.start, end: x.end, bullets: b, _s: score(x.title + ' ' + x.bullets) };
+  }).sort(function (a, b) { return b._s - a._s; });
+  var skills = String(resume.skills || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).sort(function (a, b) { return score(b) - score(a); }).join(', ');
+  return { headline: resume.headline || job.title, summary: resume.summary || '', skills: skills, exp: exp, edu: resume.edu || [],
+    tips: ['Add the exact license names the posting asks for, if you hold them.', 'Mention hours toward your license and any tools you own.'],
+    cover: 'I\'m applying for the ' + (job.title || 'open') + ' role' + (job.company ? ' at ' + job.company : '') + '. ' + (resume.summary || '') };
+}

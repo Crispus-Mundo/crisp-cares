@@ -9,7 +9,7 @@
  * Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone).
  */
 
-var APP_VERSION = 'connect-members v1.2 — 2026-11-06';
+var APP_VERSION = 'connect-members v1.3 — 2026-11-06';
 var ADMINS = ['crispcleaninc@gmail.com']; // ccyars26 is a regular member account by choice
 var APP_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/member/';
 var HUB_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/';
@@ -128,6 +128,7 @@ function route_(action, r) {
     case 'saveItem': return saveItem_(me, r.kind, r.item || {});
     case 'sync': return sync_(me, r.ops || []);
     case 'importJobs': return importJobs_(me);
+    case 'tailorResume': return tailorResume_(me, r.job || {});
     case 'deleteItem': return deleteItem_(me, r.id);
     case 'uploadFile': return uploadFile_(me, r);
     case 'getFile': return getFile_(me, r.fileId);
@@ -305,6 +306,7 @@ function myItems_(email) {
 }
 
 function loadAll_(m) {
+  try { ensureLegalProduct_(); } catch (e) {}
   return {
     me: publicMe_(m), jobs: listJobs_(m), items: myItems_(m.email), specialties: SPECIALTIES, version: APP_VERSION,
     updates: listUpdates_(), unions: listUnions_(), wisdom: WISDOM, resources: listResources_(), langs: LANGS, aiOn: !!(PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY') || PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')), plans: activeRows_('Plans'), products: activeRows_('Products'),

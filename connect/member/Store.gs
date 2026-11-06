@@ -18,6 +18,7 @@ function seedCatalog_(ss) {
     { id: 'PM', name: 'Monthly autopay (card on file)', months: 1, price: 39, note: 'Billed every month to your card until you cancel', payLink: '', recurring: true, active: true, order: 4 }
   ]);
   seed('Products', [
+    LEGAL_PRODUCT,
     { id: 'S1', name: 'Tax return preparation', business: 'Crisp Clean', description: 'Your personal return prepared and reviewed. Start online and upload your documents.', price: 'From $150', link: 'https://script.google.com/macros/s/AKfycbzmI15RFTtntWe2eQaV-5nDaxVswtmttfMC3gV2qaPCTru5cV-aodWs7rGtr5GJOayGsg/exec?p=client&src=connect', active: true, order: 1 },
     { id: 'S2', name: 'AI tax prep software for preparers', business: 'Crisp Clean', description: 'Season license for tax preparers: documents keyed for you, flagged for review, you sign off.', price: '$499 per season', link: 'https://script.google.com/macros/s/AKfycbzmI15RFTtntWe2eQaV-5nDaxVswtmttfMC3gV2qaPCTru5cV-aodWs7rGtr5GJOayGsg/exec?p=pro&src=connect', active: true, order: 2 },
     { id: 'S3', name: 'Tax plan + client planner portal', business: 'Crisp Clean', description: 'A year-round tax plan with your own planner portal: net worth, documents and next steps in one place.', price: 'Ask for pricing', link: '', active: true, order: 3 },
@@ -30,6 +31,17 @@ function seedCatalog_(ss) {
     { id: 'U1', field: 'EPA 608', title: 'R-410A: the January 1, 2026 installation deadline was removed', body: 'Since January 1, 2025, new residential and light-commercial AC and heat pump systems can no longer be made or imported with refrigerants above 700 GWP (R-410A is about 2,088). The 2023 rule also said leftover R-410A equipment had to be installed by January 1, 2026. EPA removed that installation deadline in a final rule issued May 21, 2026 (effective July 27, 2026) for equipment made or imported before January 1, 2025. Servicing existing R-410A systems with R-410A is still legal. New York kept the 2026 deadline under its own state rule. VRF/VRV systems made before January 1, 2026 still have to be installed by January 1, 2027.', effective: '2026-07-27', source: 'https://www.achrnews.com/articles/166226-epa-removes-r-410a-installation-deadline', created: new Date(), postedBy: 'setup' },
     { id: 'U2', field: 'EPA 608', title: 'Leak repair now covers HFC systems with 15 lb or more', body: 'Older 608 study material teaches leak repair for ozone-depleting refrigerants at 50 lb or more. Under EPA\'s 2024 Emissions Reduction and Reclamation rule (40 CFR Part 84), starting January 1, 2026, appliances holding 15 lb or more of an HFC refrigerant (GWP above 53) have leak repair, inspection and recordkeeping requirements. Residential and light-commercial AC and heat pumps are not included. Reclaimed HFC refrigerant may contain no more than 15% virgin HFC by weight. EPA has said it is reconsidering parts of this rule, so watch this space.', effective: '2026-01-01', source: 'https://www.epa.gov/system/files/documents/2026-01/er-r-fact-sheet-leak-repair-2026-01-13_1.pdf', created: new Date(), postedBy: 'setup' }
   ]);
+}
+
+
+/* Law Analyzer (added Nov 6, 2026). seedCatalog_ only fills an empty tab, so this adds the row once to a live sheet. */
+var LEGAL_PRODUCT = { id: 'S8', name: 'Law Analyzer — legal help', business: 'Crispus Mundo', description: 'Legal help? Looking for an attorney? Start here. Upload your court papers, letters and photos. The Law Analyzer reads them, builds your timeline and court dates, shows what is missing, lays out your next steps under your state\'s court rules, and drafts documents for you to review. Includes "Find an attorney" help with where to file and what to bring to a consult. It is a software tool, not a law firm: it does not give legal advice or represent you.', price: '$39.99 per month', link: '', active: true, order: 0.5, payLink: '' };
+function ensureLegalProduct_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('LEGAL_PRODUCT_V1')) return;
+  var has = rows_('Products').some(function (r) { return r.id === LEGAL_PRODUCT.id; });
+  if (!has) append_('Products', LEGAL_PRODUCT);
+  props.setProperty('LEGAL_PRODUCT_V1', '1');
 }
 
 function activeRows_(name) {

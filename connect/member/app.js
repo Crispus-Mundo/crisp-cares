@@ -194,13 +194,13 @@
 
   /* ---------------- shell */
   function TABS() {
-    var t = [['home', 'Home'], ['ask', 'Ask & help'], ['jobs', 'Jobs'], ['unions', 'Unions'], ['tracker', 'My tracker'], ['wallet', 'Licenses'], ['log', 'Hours & miles'], ['learn', 'Learn'], ['wisdom', 'Wisdom'], ['resume', 'Resume'], ['upgrade', S.me && S.me.premium ? 'Pro & shop' : 'Upgrade'], ['profile', 'Profile']];
+    var t = [['home', 'Home'], ['ask', 'Ask & help'], ['jobs', 'Jobs'], ['unions', 'Unions'], ['tracker', 'My tracker'], ['wallet', 'Licenses'], ['log', 'Hours & miles'], ['learn', 'Learn'], ['wisdom', 'Gems'], ['resume', 'Resume'], ['upgrade', S.me && S.me.premium ? 'Pro & shop' : 'Upgrade'], ['legal', 'Legal help'], ['profile', 'Profile']];
     if (S.me && S.me.role === 'admin') t.push(['admin', 'Admin']);
     return t;
   }
   function render() {
     var nav = document.getElementById('tabs'); nav.hidden = true;
-    var MAIN = [['home', 'Home', 'home'], ['learn', 'Learn', 'bulb'], ['wisdom', 'Wisdom', 'mountain'], ['jobs', 'Jobs', 'briefcase'], ['more', 'More', 'people']];
+    var MAIN = [['home', 'Home', 'home'], ['learn', 'Learn', 'bulb'], ['jobs', 'Jobs', 'briefcase'], ['tracker', 'Tracker', 'target'], ['more', 'More', 'people']];
     var inMain = MAIN.some(function (m) { return m[0] === S.tab; });
     var bn = document.getElementById('bottomNav'); bn.hidden = false; document.body.classList.add('has-bottom-nav');
     bn.innerHTML = MAIN.map(function (m) { var on = S.tab === m[0] || (m[0] === 'more' && !inMain); return '<button type="button" data-tab="' + m[0] + '"' + (on ? ' aria-current="page"' : '') + '><span class="bn-icon">' + ART[m[2]] + '</span><span>' + m[1] + '</span></button>'; }).join('');
@@ -213,20 +213,21 @@
     renderStatus();
     if (S.tab === 'wallet' || S.tab === 'tracker') loadThumbs();
     if (S.tab === 'learn') afterLearnRender();
+    if (S.tab === 'home') gemTick();
     if (S.tab === 'admin' && !S.admin) loadAdmin();
   }
   function go(tab) { S.tab = tab; S.edit = null; try { history.replaceState(null, '', '#' + tab); } catch (e) {} render(); window.scrollTo(0, 0); }
 
   /* ---------------- views */
   var VIEWS = {};
-  var MORE = [['ask', 'Ask & help', 'chat', 'sky'], ['unions', 'Unions', 'handshake', 'sand'], ['tracker', 'My job tracker', 'briefcase', 'navy'], ['wallet', 'Licenses', 'shield', 'mint'], ['log', 'Hours & miles', 'clock', 'sun'], ['resume', 'Resume', 'book', 'lav'], ['upgrade', 'Pro & shop', 'coins', 'rose'], ['profile', 'Profile', 'people', 'sky'], ['howVideo', 'How it works', 'bulb', 'sun']];
+  var MORE = [['wisdom', 'Gems', 'mountain', 'lav'], ['ask', 'Ask & help', 'chat', 'sky'], ['unions', 'Unions', 'handshake', 'sand'], ['tracker', 'My job tracker', 'briefcase', 'navy'], ['wallet', 'Licenses', 'shield', 'mint'], ['log', 'Hours & miles', 'clock', 'sun'], ['resume', 'Resume', 'book', 'lav'], ['upgrade', 'Pro & shop', 'coins', 'rose'], ['legal', 'Legal help', 'shield', 'navy'], ['profile', 'Profile', 'people', 'sky'], ['howVideo', 'How it works', 'bulb', 'sun'], ['signOut', 'Sign out', 'shield', 'rose']];
   VIEWS.more = function () {
     var list = MORE.slice(); if (S.me.role === 'admin') list.push(['admin', 'Admin', 'law', 'navy']);
-    return '<h1>Everything</h1><div class="tiles">' + list.map(function (m) { return '<button type="button" class="tile ' + m[3] + '" ' + (m[0] === 'howVideo' ? 'data-act="howVideo"' : 'data-tab="' + m[0] + '"') + '><span class="tile-art">' + ART[m[2]] + '</span><span class="tile-title">' + h(m[1]) + '</span></button>'; }).join('') + '</div>';
+    return '<h1>Everything</h1><div class="tiles">' + list.map(function (m) { return '<button type="button" class="tile ' + m[3] + '" ' + (m[0] === 'howVideo' || m[0] === 'signOut' ? 'data-act="' + m[0] + '"' : 'data-tab="' + m[0] + '"') + '><span class="tile-art">' + ART[m[2]] + '</span><span class="tile-title">' + h(m[1]) + '</span></button>'; }).join('') + '</div>';
   };
   function quickTiles() {
-    var q = [['learn', 'Learn', 'bulb', 'sun'], ['wisdom', 'Wisdom', 'mountain', 'lav'], ['jobs', 'Jobs', 'briefcase', 'navy'], ['unions', 'Unions', 'handshake', 'sand'], ['wallet', 'Licenses', 'shield', 'mint'], ['ask', 'Ask', 'chat', 'sky']];
-    return '<div class="tiles small-tiles">' + q.map(function (m) { return '<button type="button" class="tile ' + m[3] + '" data-tab="' + m[0] + '"><span class="tile-art">' + ART[m[2]] + '</span><span class="tile-title">' + m[1] + '</span></button>'; }).join('') + '</div>';
+    var U = 'https://images.unsplash.com/', q = [['jobs', 'Jobs', 'photo-1621905251918-48416bd8575a'], ['learn', 'Learn', 'photo-1597058557804-95ac4ee36e66'], ['unions', 'Unions', 'photo-1690356107685-3725367f6f3f'], ['resume', 'Resume', 'photo-1687422808311-a776f467a468'], ['wallet', 'Licenses', 'photo-1760074032600-36943c264fbf'], ['ask', 'Ask', 'photo-1762955911431-4c44c7c3f408']];
+    return '<div class="ptiles home-ptiles">' + q.map(function (m) { return '<button type="button" class="ptile" data-tab="' + m[0] + '"><img loading="lazy" alt="" src="' + U + m[2] + '?w=400&h=300&fit=crop&q=65&auto=format" onerror="this.remove()"><span><b>' + m[1] + '</b></span></button>'; }).join('') + '</div>';
   }
 
   VIEWS.home = function () {
@@ -236,21 +237,68 @@
     var seen = Number(store('connect_updates_seen') || 0);
     var newUp = S.updates.filter(function (u) { return new Date(u.created).getTime() > seen && fieldMatches(u.field); });
     var yr = new Date().getFullYear() + '';
+    var tr = items('track'), jobsT = tr.filter(function (t) { return !t.unionId; }), unionsT = tr.filter(function (t) { return t.unionId; });
     var hrs = items('log').filter(function (l) { return l.type === 'Hours' && (l.date || '').indexOf(yr) === 0; }).reduce(function (s, l) { return s + (Number(l.hours) || 0); }, 0);
     return '<h1>' + (first ? 'Welcome back, ' + h(first) : 'Welcome') + '</h1>' +
-      tickerHtml() + quickTiles() + (store('connect_seen_video') ? '' : (window.ConnectWatchButton ? ConnectWatchButton() : '')) + wisdomToday() +
+      tickerHtml() + nextSteps(certs, fol) + (store('connect_seen_video') ? '' : (window.ConnectWatchButton ? ConnectWatchButton() : '')) + wisdomToday() + quickTiles() +
+      (jobsT.length ? '<h2>My applications</h2>' + jobsT.filter(function (t) { return TRACK_DONE.indexOf(t.status) < 0 || t.status === 'Offer accepted' || t.status === 'Not selected'; }).slice(0, 4).map(appStepper).join('') + '<button class="link" data-tab="tracker">See all ' + jobsT.length + ' in my tracker</button>' : '') +
+      (unionsT.length ? '<h2>My union applications</h2>' + unionsT.slice(0, 3).map(unionProgressCard).join('') : '') +
       (newUp.length ? '<div class="notice"><b>' + newUp.length + ' rule change' + (newUp.length > 1 ? 's' : '') + ' for your field.</b> <button class="link" data-act="openUpdates">Read them</button></div>' : '') +
       '<div class="grid2">' +
       '<div class="stat"><b>' + items('track').filter(function (t) { return t.status === 'Applied' || t.status === 'Interviewing'; }).length + '</b>open applications</div>' +
       '<div class="stat"><b>' + items('cert').length + '</b>licenses saved</div>' +
       '<div class="stat"><b>' + (Math.round(hrs * 10) / 10) + '</b>hours logged in ' + yr + '</div>' +
       '<div class="stat"><b>' + S.jobs.filter(function (j) { return j.status === 'approved'; }).length + '</b>jobs on the board</div></div>' +
-      (certs.length ? '<h2>Coming due</h2><div class="card">' + certs.map(function (c) { return '<div class="list-item spread"><span>' + h(c.name) + '</span>' + expTag(c.expires) + '</div>'; }).join('') + '</div>' : '') +
-      (fol.length ? '<h2>Follow up today</h2><div class="card">' + fol.map(function (t) { return '<div class="list-item spread"><span>' + h(t.title) + (t.company ? ' — ' + h(t.company) : '') + '</span><button class="link" data-act="editTrack" data-id="' + h(t.id) + '">Open</button></div>'; }).join('') + '</div>' : '') +
+      (certs.length && false ? '<h2>Coming due</h2><div class="card">' + certs.map(function (c) { return '<div class="list-item spread"><span>' + h(c.name) + '</span>' + expTag(c.expires) + '</div>'; }).join('') + '</div>' : '') +
+      (fol.length && false ? '<h2>Follow up today</h2><div class="card">' + fol.map(function (t) { return '<div class="list-item spread"><span>' + h(t.title) + (t.company ? ' — ' + h(t.company) : '') + '</span><button class="link" data-act="editTrack" data-id="' + h(t.id) + '">Open</button></div>'; }).join('') + '</div>' : '') +
       '<h2>Newest jobs</h2>' + (S.jobs.filter(function (j) { return j.status === 'approved'; }).slice(0, 3).map(jobCard).join('') || '<p class="muted">No jobs posted yet. You\'ll get an email when one is.</p>') +
+      legalCard() +
       (!S.me.premium ? '<div class="card"><h3>Connect Pro</h3><p class="muted">Full exam prep for your field, advanced wiring diagrams, more refreshers and hands-free car-mode playlists.</p><button class="gold" data-tab="upgrade">See plans</button></div>' : '');
   };
 
+
+  /* Law Analyzer: legal help offer (Nov 6, 2026) */
+  function legalProduct() { return S.products.filter(function (p) { return p.id === 'S8'; })[0] || null; }
+  function legalCard() {
+    var p = legalProduct(); if (!p) return '';
+    return '<button type="button" class="card legal-card" data-tab="legal"><span class="legal-q">Legal help? Looking for an attorney?</span><span class="small">The Law Analyzer reads your court papers and shows your next steps. ' + h(p.price) + '.</span><span class="chev">›</span></button>';
+  }
+  VIEWS.legal = function () {
+    var p = legalProduct();
+    var mine = S.orders.filter(function (o) { return o.refId === 'S8' && o.status !== 'cancelled'; })[0];
+    return '<h1>Legal help? Looking for an attorney?</h1>' +
+      '<div class="card legal-hero"><h3 style="margin-top:0">Law Analyzer</h3><p style="margin:0 0 6px">Start with your own papers. Upload court filings, letters, leases, notices, emails and photos, or tell your story by voice. The Law Analyzer:</p>' +
+      '<ul style="margin:6px 0 0 18px;padding:0"><li>Reads every document and explains each one in plain language</li><li>Builds your timeline, court dates and deadlines</li><li>Shows what is missing and where to get it</li><li>Lays out your next steps under your state\'s court rules</li><li>Drafts answers, motions, letters and demand letters for you to review</li><li>Points you to the right court to file in</li><li>Helps you find an attorney and prepares a case summary to bring to the consult</li></ul>' +
+      '<div class="spread" style="margin-top:12px"><div><b style="font-size:24px;color:var(--navy)">$39.99</b> <span class="small muted">per month · cancel any time</span></div></div>' +
+      (mine ? '<div class="notice" style="margin-top:10px">' + (mine.status === 'paid' ? '<b>Paid — thank you.</b> Our team sends your Law Analyzer access by email.' : '<b>Request received.</b> We\'ll send your payment link and sign-in by email.') + '</div>' :
+        (p ? '<button class="gold" style="margin-top:12px" data-act="order" data-kind="product" data-id="S8">Start the Law Analyzer — $39.99/month</button>' : '<p class="small muted" style="margin-top:10px">Connect to the internet once to load sign-up.</p>')) +
+      '</div>' +
+      '<div class="card"><h3 style="margin-top:0">Need to talk to someone?</h3><p class="small" style="margin:0">Text (248) 403-8982 or email <a href="mailto:LmiraC@crispcleans.com">LmiraC@crispcleans.com</a> and a team member will help you get set up.</p></div>' +
+      '<p class="small muted">The Law Analyzer is a software tool, not a law firm. It does not give legal advice or represent you, and using it does not create an attorney-client relationship.</p>';
+  };
+
+  /* command center pieces */
+  var STEPS = ['Saved', 'Applied', 'Interviewing', 'Offer received', 'Offer accepted'];
+  function appStepper(t) {
+    var st = t.status || 'Saved', idx = st === 'Researching' ? 0 : STEPS.indexOf(st), lost = ['Not selected', 'Not pursuing', 'Withdrew'].indexOf(st) > -1;
+    if (lost) idx = 1;
+    return '<button type="button" class="app-step card" data-act="editTrack" data-id="' + h(t.id) + '"><div class="spread"><b>' + h(t.title) + '</b>' + stageTag(st) + '</div><div class="small muted">' + h(t.company || '') + '</div>' +
+      '<ol class="stepper' + (lost ? ' lost' : '') + '">' + ['Saved', 'Applied', 'Interview', 'Offer', 'Hired'].map(function (lbl, k) { return '<li class="' + (k < idx || (st === 'Offer accepted' && k <= idx) ? 'done' : k === idx ? 'cur' : '') + '"><i></i><span>' + lbl + '</span></li>'; }).join('') + '</ol>' +
+      (lost ? '<div class="small" style="color:#B3261E">' + h(st) + '. Keep going; the next one is out there.</div>' : t.followUp ? '<div class="small muted">Follow up ' + h(fmtDate(t.followUp)) + '</div>' : '') + '</button>';
+  }
+  function nextSteps(certs, fol) {
+    var todo = [];
+    fol.forEach(function (t) { todo.push(['Follow up: ' + t.title + (t.company ? ' at ' + t.company : ''), 'editTrack', t.id, 'clock']); });
+    items('track').forEach(function (t) { if (t.interview && t.interview.slice(0, 10) >= today()) todo.push(['Interview ' + fmtDate(t.interview.slice(0, 10)) + ': ' + t.title, 'editTrack', t.id, 'calendar']); });
+    certs.forEach(function (c) { var d = daysUntil(c.expires); todo.push([(d < 0 ? 'Expired: ' : 'Renew in ' + d + ' days: ') + c.name, 'goTab', 'wallet', 'shield']); });
+    items('track').filter(function (t) { return t.unionId; }).forEach(function (t) { var nx = unionNext(t); if (nx) todo.push(['Union step: ' + nx + ' (' + (t.company || '') + ')', 'goTab', 'unions', 'handshake']); });
+    var r = S.me.resume || {}; if (!r.summary && !(r.exp || []).length) todo.push(['Build your resume so we can tailor it to each job', 'goTab', 'resume', 'book']);
+    if (!items('cert').length) todo.push(['Add your licenses to your wallet', 'goTab', 'wallet', 'shield']);
+    if (!items('track').length) todo.push(['Save your first job from the board', 'goTab', 'jobs', 'briefcase']);
+    var x = xpGet(); if (x.last !== today()) todo.push(['Study 5 minutes today to keep your streak', 'goTab', 'learn', 'bulb']);
+    if (!todo.length) return '<div class="cc done-cc"><b>You\'re all caught up.</b> <span class="small muted">Check the job board for new openings.</span></div>';
+    return '<div class="cc"><div class="spread"><h2 style="margin:0">What to do next</h2><span class="tag navy">' + todo.length + '</span></div>' + todo.slice(0, 5).map(function (t) { return '<button type="button" class="cc-row" data-act="' + t[1] + '" data-id="' + h(t[2]) + '"><span class="cc-ic">' + (ART[t[3]] || '') + '</span><span>' + h(t[0]) + '</span><span class="chev">›</span></button>'; }).join('') + (todo.length > 5 ? '<p class="small muted" style="margin:6px 0 0">+' + (todo.length - 5) + ' more</p>' : '') + '</div>';
+  }
   function tickerHtml() {
     var s = S.me.schoolStart;
     if (!s) return '<div class="ticker"><div class="big">Your years in the trade</div><p style="margin:6px 0 0">Add the date you started school under <button class="link" style="color:var(--gold)" data-tab="profile">Profile</button>. That counts as Year One.</p></div>';
@@ -282,6 +330,7 @@
       (j.source ? '<p class="small muted" style="margin:6px 0 0">' + h(j.source) + (j.checked ? ' · checked ' + h(fmtDate(j.checked)) : '') + '</p>' : '') +
       '<div class="row">' + (j.status === 'approved' ? (saved ? '<span class="tag ok">In your tracker</span>' : '<button class="primary" data-act="saveJob" data-id="' + h(j.id) + '">Save to my tracker</button>') : '') +
       (j.url ? '<a class="btn ghost" href="' + h(j.url) + '" target="_blank" rel="noopener">Apply / details</a>' : '') +
+      (j.status === 'approved' ? '<button class="gold" data-act="tailor" data-id="' + h(j.id) + '" data-k="job">Tailor my resume</button>' : '') +
       (j.contact ? '<span class="small muted">Contact: ' + h(j.contact) + '</span>' : '') +
       (S.me.role === 'admin' && j.status === 'pending' ? '<button class="primary" data-act="reviewJob" data-id="' + h(j.id) + '" data-d="approve">Approve</button><button class="danger" data-act="reviewJob" data-id="' + h(j.id) + '" data-d="decline">Decline</button>' : '') +
       ((S.me.role === 'admin' || j.mine) && j.status === 'approved' ? '<button class="link" data-act="closeJob" data-id="' + h(j.id) + '">Close post</button>' : '') +
@@ -379,6 +428,7 @@
       (t.followUp && TRACK_DONE.indexOf(st) < 0 ? '<button class="ghost" data-act="trackFollowed" data-id="' + h(t.id) + '">I followed up</button>' : '') +
       '<button class="ghost" data-act="editTrack" data-id="' + h(t.id) + '">Edit</button>' +
       (t.url ? '<a class="btn ghost" href="' + h(t.url) + '" target="_blank" rel="noopener">Posting</a>' : '') +
+      (!t.unionId ? '<button class="gold" data-act="tailor" data-id="' + h(t.id) + '" data-k="track">Tailor my resume &amp; apply</button>' : '') +
       (t.confirmUrl ? '<a class="btn ghost" href="' + h(t.confirmUrl) + '" target="_blank" rel="noopener">Confirmation</a>' : '') +
       ['resume', 'cover'].map(function (sd) { return '<label class="btn ghost" style="margin:0;font-size:14px">' + (f[sd] ? 'Replace ' : 'Attach ') + (sd === 'cover' ? 'cover letter' : 'resume') + '<input type="file" hidden accept="application/pdf,image/*" data-upload="' + h(t.id) + '" data-side="' + sd + '"></label>'; }).join('') +
       '<button class="link" data-act="delItem" data-id="' + h(t.id) + '">Delete</button></div></div>';
@@ -518,7 +568,18 @@
   }
 
   /* learn */
-  function learnFields() { var sp = S.me.specialty || 'HVAC/R'; var f = [sp].concat((window.LEARN_EXTRA || {})[sp] || []); Object.keys(LEARN).forEach(function (k) { if (f.indexOf(k) < 0 && k !== 'Other') f.push(k); }); return f; }
+  // Members only see the trades they signed up for (plus any they add in Profile, My trades).
+  function learnFields() {
+    var sp = S.me.specialty || 'HVAC/R', f = [], EX = window.LEARN_EXTRA || {};
+    [sp].concat(EX[sp] || []).concat(S.me.fields || []).forEach(function (k) { if (f.indexOf(k) < 0 && (LEARN[k] || TOPICS[k])) f.push(k); (EX[k] || []).forEach(function (x) { if (f.indexOf(x) < 0) f.push(x); }); });
+    if (S.me.role === 'admin') Object.keys(LEARN).forEach(function (k) { if (f.indexOf(k) < 0 && k !== 'Other') f.push(k); });
+    return f.length ? f : [sp];
+  }
+  var TOPICS = window.LEARN_TOPICS || {};
+  function topicsFor(f) { return TOPICS[f] || []; }
+  function topicCards(f, t) { var out = []; topicsFor(f).forEach(function (tp) { if (!t || t === tp.topic) tp.cards.forEach(function (c) { out.push({ t: c[0], b: c[1], topic: tp.topic }); }); }); return out; }
+  function topicQuiz(f, t) { var out = []; topicsFor(f).forEach(function (tp) { if (!t || t === tp.topic) out = out.concat(tp.quiz); }); return out; }
+  function basicQuiz(f, t) { var L = LEARN[f] || { quiz: [] }; return (t ? [] : L.quiz).concat(topicQuiz(f, t)); }
   function proQuiz(f) { return S.premium && S.premium.quizzes && S.premium.quizzes[f] || []; }
   function proRef(f) { return S.premium && S.premium.refreshers && S.premium.refreshers[f] || []; }
   function proDiagrams(f) { return S.premium && S.premium.diagrams ? S.premium.diagrams.filter(function (d) { return d.field === f; }) : []; }
@@ -550,29 +611,34 @@
     if (mode === 'diagrams') return diagramsView(f);
     if (mode === 'rules') return rulesView(f);
     var L = LEARN[f] || { refreshers: [], quiz: [] }, pro = !!S.me.premium;
-    var nCards = L.refreshers.length + proRef(f).length, nQ = L.quiz.length + proQuiz(f).length;
+    var tps = topicsFor(f); if (S.learnTopic && !tps.some(function (x) { return x.topic === S.learnTopic; })) S.learnTopic = '';
+    var nCards = deckFor(f).length, nQ = basicQuiz(f, S.learnTopic).length + (S.learnTopic ? 0 : proQuiz(f).length);
     var nDiag = DIAGRAMS.filter(function (d) { return d.field === f; }).length + proDiagrams(f).length;
     var ups = rulesFor(f), newUps = ups.filter(function (u) { return Date.now() - new Date(u.created).getTime() < 45 * 86400000; }).length;
     var best = store('connect_best_' + f);
     var tile = function (act, extra, art, title, sub, badge, tone) { return '<button type="button" class="tile ' + (tone || '') + '" data-act="' + act + '"' + (extra || '') + '>' + (badge ? '<span class="badge">' + badge + '</span>' : '') + '<span class="tile-art">' + art + '</span><span class="tile-title">' + h(title) + '</span><span class="tile-sub">' + h(sub) + '</span></button>'; };
     return '<h1 class="sr-only">Learn</h1>' + xpBar() +
       '<div class="chips" role="tablist" aria-label="Field">' + fields.map(function (x) { return '<button type="button" role="tab" aria-selected="' + (x === f) + '" class="chip' + (x === f ? ' on' : '') + '" data-act="fieldChip" data-f="' + h(x) + '"><span class="chip-art">' + window.artField(x) + '</span>' + h(x) + '</button>'; }).join('') + '</div>' +
+      (S.me.role !== 'admin' ? '<p class="small muted" style="margin:-2px 0 8px">Showing your trades. <button class="link" data-tab="profile">Add a trade</button></p>' : '') +
+      (tps.length ? '<div class="chips topic-chips" aria-label="Topic"><button type="button" class="chip' + (!S.learnTopic ? ' on' : '') + '" data-act="learnTopic" data-t="">All topics</button>' + tps.map(function (tp) { return '<button type="button" class="chip' + (S.learnTopic === tp.topic ? ' on' : '') + '" data-act="learnTopic" data-t="' + h(tp.topic) + '">' + h(tp.topic) + ' <span class="cnt">' + (tp.cards.length + tp.quiz.length) + '</span></button>'; }).join('') + '</div>' : '') +
       '<label for="learnField" class="sr-only">Field</label><select id="learnField" class="sr-only" data-act-change="learnField">' + fields.map(function (x) { return '<option' + (x === f ? ' selected' : '') + '>' + h(x) + '</option>'; }).join('') + '</select>' +
       '<div class="tiles">' +
       tile('learnMode', ' data-m="cards"', ART.bulb, 'Flashcards', nCards + ' cards · tap to flip', '', 'sun') +
-      tile('startQuiz', ' data-n="10"', ART.target, 'Quick quiz', (best ? 'Best ' + best : Math.min(10, nQ) + ' questions'), '', 'rose') +
-      tile('openCar', '', ART.chat, 'Listen in the car', 'Plays out loud, hands-free', '', 'sky') +
+      tile('startQuiz', ' data-n="10"', ART.target, S.learnTopic ? S.learnTopic + ' quiz' : 'Quick quiz', (best ? 'Best ' + best + ' · ' : '') + Math.min(10, nQ) + ' of ' + nQ + ' questions', '', 'rose') +
+      tile('startQuiz', ' data-n="25"', ART.chart, 'Long practice test', Math.min(25, nQ) + ' mixed questions', '', 'sky') +
       tile('learnMode', ' data-m="diagrams"', ART.wires, 'Diagrams', nDiag ? nDiag + ' pictures' : 'Coming soon', '', 'mint') +
       (ups.length ? tile('learnMode', ' data-m="rules"', ART.law, 'Rule changes', ups.length + ' updates', newUps ? newUps + ' new' : '', 'sand') : '') +
-      tile('goWisdom', '', ART.mountain, 'Wisdom', 'Swipe short lessons', '', 'lav') +
+
       (pro && proQuiz(f).length ? tile('startQuiz', ' data-n="999"', ART.shield, 'Full exam prep', nQ + ' questions', 'Pro', 'navy') : (!pro ? tile('goUpgrade', '', ART.shield, 'Full exam prep', 'More cards, diagrams & quizzes', 'Pro', 'navy') : '')) +
       '</div>' +
+      (tps.length ? '<h2>Quiz by topic</h2><div class="topic-list">' + tps.map(function (tp) { var b = store('connect_best_' + f + '|' + tp.topic); return '<button type="button" class="topic-row" data-act="topicQuiz" data-t="' + h(tp.topic) + '"><span class="tr-art">' + window.artFor(tp.topic + ' ' + tp.cards.map(function (c) { return c[0]; }).join(' '), f) + '</span><span><b>' + h(tp.topic) + '</b><small>' + tp.quiz.length + ' questions · ' + tp.cards.length + ' cards' + (b ? ' · best ' + h(b) : '') + '</small></span><span class="chev">›</span></button>'; }).join('') + '</div>' : '') +
       (L.refreshers[0] ? '<h2>Card of the day</h2>' + (function () { var r = L.refreshers[dayIndex() % L.refreshers.length]; return '<button type="button" class="feature" data-act="learnMode" data-m="cards">' + bigArt(r[0] + ' ' + r[1], f, 'sm') + '<span><b>' + h(r[0]) + '</b><br><span class="muted small">Tap to study</span></span></button>'; })() : '') +
       '<p class="small muted" style="margin-top:14px">Study aids only. Check your instructor, the manufacturer\'s data and the official study guide.</p>';
   };
   function rulesFor(f) { return S.updates.filter(function (u) { return u.field === f || u.field === 'All' || (f === 'HVAC/R' && u.field === 'EPA 608'); }); }
-  function backBar(title) { return '<div class="backbar"><button type="button" class="ghost icon-btn" data-act="learnMode" data-m="hub" aria-label="Back to Learn">‹</button><h1>' + h(title) + '</h1><label class="toggle"><input type="checkbox" data-act-change="autoRead"' + (autoRead() ? ' checked' : '') + '> Read to me</label></div>'; }
-  function deckFor(f) { var L = LEARN[f] || { refreshers: [] }; return L.refreshers.map(function (r) { return { t: r[0], b: r[1], pro: false }; }).concat(proRef(f).map(function (r) { return { t: r[0], b: r[1], pro: true }; })); }
+  function hearBtn() { return '<button type="button" class="ghost hear-btn" data-act="openCar" aria-label="How to hear it"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM16 8a5 5 0 0 1 0 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>' + (autoRead() ? 'Reading' : 'Hear it') + '</button>'; }
+  function backBar(title) { return '<div class="backbar"><button type="button" class="ghost icon-btn" data-act="learnMode" data-m="hub" aria-label="Back to Learn">‹</button><h1>' + h(title) + '</h1>' + hearBtn() + '</div>'; }
+  function deckFor(f) { var L = LEARN[f] || { refreshers: [] }, t = S.learnTopic || ''; return (t ? [] : L.refreshers.map(function (r) { return { t: r[0], b: r[1], pro: false }; })).concat(topicCards(f, t)).concat(t ? [] : proRef(f).map(function (r) { return { t: r[0], b: r[1], pro: true }; })); }
   function cardsView(f) {
     var deck = deckFor(f); if (!deck.length) return backBar('Flashcards') + '<p class="muted">More cards for this field are coming.</p>';
     var i = Math.max(0, Math.min(S.cardI || 0, deck.length - 1)); S.cardI = i; var c = deck[i], flipped = !!S.cardFlip;
@@ -612,11 +678,13 @@
   function carSheet() {
     var f = S.learnField, ups = rulesFor(f);
     var m = document.createElement('div'); m.className = 'modal';
-    m.innerHTML = '<div class="sheet"><h2 style="margin-top:0">Listen in the car</h2><p class="muted small">Plays out loud, one after another. Keep your screen on.</p><div class="tiles">' +
+    m.innerHTML = '<div class="sheet"><h2 style="margin-top:0">How to hear it</h2>' +
+      '<label class="hear-opt"><input type="checkbox" data-act-change="autoRead"' + (autoRead() ? ' checked' : '') + '><span><b>Read to me as I go</b><small>Each card and question is read out when it opens</small></span></label>' +
+      '<p class="small" style="margin:12px 0 6px"><b>Listen hands-free</b> (in the car): plays one after another. Keep your screen on.</p><div class="tiles">' +
       '<button type="button" class="tile sun" data-act="listen" data-what="ref"><span class="tile-art">' + ART.bulb + '</span><span class="tile-title">Flashcards</span><span class="tile-sub">Every card, read out</span></button>' +
       '<button type="button" class="tile rose" data-act="listen" data-what="quiz"><span class="tile-art">' + ART.target + '</span><span class="tile-title">Quiz + answers</span><span class="tile-sub">Question, pause, answer</span></button>' +
       (ups.length ? '<button type="button" class="tile sand" data-act="listen" data-what="ups"><span class="tile-art">' + ART.law + '</span><span class="tile-title">Rule changes</span><span class="tile-sub">' + ups.length + ' updates</span></button>' : '') +
-      '<button type="button" class="tile lav" data-act="listen" data-what="wisdom"><span class="tile-art">' + ART.mountain + '</span><span class="tile-title">Wisdom</span><span class="tile-sub">Short lessons</span></button>' +
+      '<button type="button" class="tile lav" data-act="listen" data-what="wisdom"><span class="tile-art">' + ART.mountain + '</span><span class="tile-title">Gems</span><span class="tile-sub">Words to work by</span></button>' +
       '</div>' + (!S.me.premium ? '<p class="small muted">Pro adds the full exam-prep set to car mode.</p>' : '') + '<button type="button" class="ghost" data-close style="margin-top:10px">Close</button></div>';
     m.addEventListener('click', function (ev) { if (ev.target === m || ev.target.hasAttribute('data-close') || ev.target.closest('[data-act=listen]')) m.remove(); });
     document.body.appendChild(m);
@@ -624,15 +692,15 @@
   function quizView() {
     var q = S.quiz, cur = q.list[q.i];
     if (!cur) {
-      var pct = q.list.length ? Math.round(q.score / q.list.length * 100) : 0, key = 'connect_best_' + q.field, prev = store(key);
+      var pct = q.list.length ? Math.round(q.score / q.list.length * 100) : 0, key = 'connect_best_' + q.field + (q.topic ? '|' + q.topic : ''), prev = store(key);
       if (!prev || parseInt(prev, 10) < pct) store(key, pct + '%');
       var r = 54, circ = 2 * Math.PI * r;
       return '<div class="done"><svg viewBox="0 0 140 140" width="180" height="180" role="img" aria-label="' + pct + ' percent"><circle cx="70" cy="70" r="' + r + '" fill="none" stroke="#E4DCC8" stroke-width="14"/><circle cx="70" cy="70" r="' + r + '" fill="none" stroke="' + (pct >= 70 ? '#2FA39A' : '#E8873A') + '" stroke-width="14" stroke-linecap="round" stroke-dasharray="' + (circ * pct / 100) + ' ' + circ + '" transform="rotate(-90 70 70)"/><text x="70" y="78" text-anchor="middle" font-size="30" font-weight="700" fill="#1B2951" font-family="Figtree,Arial">' + pct + '%</text></svg>' +
         '<h1>' + (pct >= 90 ? 'Outstanding!' : pct >= 70 ? 'Nice work!' : 'Keep going!') + '</h1><p class="muted">' + q.score + ' of ' + q.list.length + ' right · +' + (q.score * 10) + ' points</p>' + xpBar() +
-        '<div class="row center-row"><button class="primary" data-act="startQuiz" data-n="' + q.n + '">Play again</button><button class="ghost" data-act="endQuiz">Back to Learn</button></div></div>';
+        '<div class="row center-row"><button class="primary" data-act="startQuiz" data-n="' + q.n + '" data-t="' + h(q.topic || '') + '">Play again</button><button class="ghost" data-act="endQuiz">Back to Learn</button></div></div>';
     }
     var answered = q.answered != null, right = answered && q.answered === cur.a;
-    return '<div class="backbar"><button type="button" class="ghost icon-btn" data-act="endQuiz" aria-label="Stop quiz">✕</button><h1>' + h(q.field) + ' quiz</h1><label class="toggle"><input type="checkbox" data-act-change="autoRead"' + (autoRead() ? ' checked' : '') + '> Read to me</label></div>' +
+    return '<div class="backbar"><button type="button" class="ghost icon-btn" data-act="endQuiz" aria-label="Stop quiz">✕</button><h1>' + h(q.topic || q.field) + ' quiz</h1>' + hearBtn() + '</div>' +
       '<div class="progress"><span style="width:' + Math.round(q.i / q.list.length * 100) + '%"></span></div><p class="small muted center">Question ' + (q.i + 1) + ' of ' + q.list.length + ' · ' + q.score + ' right</p>' +
       '<div class="qcard">' + bigArt(cur.q + ' ' + cur.why, q.field, 'md') + '<p class="qtext">' + h(cur.q) + '</p><button type="button" class="link small" data-act="speakQ">Read it to me</button></div>' +
       cur.o.map(function (o, k) {
@@ -692,6 +760,47 @@
       (skills.length ? '<h4>Core skills</h4><p>' + skills.map(h).join(' · ') + '</p>' : '') + '</div>';
   }
 
+  /* tailored resume: rewrite for one job, preview, then apply */
+  function tailorFlow(kind, id, btn) {
+    var src = kind === 'job' ? S.jobs.filter(function (x) { return x.id === id; })[0] : items('track').filter(function (x) { return x.id === id; })[0]; if (!src) return;
+    var r = S.me.resume || {}; if (!r.summary && !(r.exp || []).length) { toast('Fill in your resume first. It only takes a few minutes.'); return go('resume'); }
+    var job = { title: src.title, company: src.company, location: src.location, pay: src.pay, description: src.description || src.notes || '', requirements: src.requirements || '' };
+    busy(btn, true, 'Tailoring…');
+    api('tailorResume', { job: job }).then(function (res) { busy(btn, false); showTailored(src, kind, res.tailored, res.mode); })
+      .catch(function (e) { busy(btn, false); toast(isOffline(e) ? 'Tailoring needs internet. Your saved resume still prints offline.' : e.message); });
+  }
+  function showTailored(src, kind, t, mode) {
+    var me = S.me, r = me.resume || {}, certs = r.includeCerts !== false ? items('cert') : [];
+    var sheet = '<div class="resume-sheet"><h1>' + h(me.name) + '</h1>' + (t.headline ? '<div class="tagline">' + h(t.headline) + '</div>' : '') + '<div class="contact">' + [r.city, me.phone, r.email || me.email].filter(Boolean).map(h).join(' · ') + '</div>' +
+      (t.summary ? '<h4>Summary</h4><p>' + h(t.summary) + '</p>' : '') +
+      ((t.exp || []).length ? '<h4>Relevant experience</h4>' + t.exp.map(function (e) { return '<div class="job"><span>' + h(e.title) + (e.company ? ', ' + h(e.company) : '') + '</span><span>' + h([e.start, e.end].filter(Boolean).join(' – ')) + '</span></div>' + (e.bullets ? '<ul>' + String(e.bullets).split('\n').filter(function (b) { return b.trim(); }).map(function (b) { return '<li>' + h(b.replace(/^[-•*]\s*/, '')) + '</li>'; }).join('') + '</ul>' : ''); }).join('') : '') +
+      ((r.edu || []).length ? '<h4>Education &amp; training</h4>' + r.edu.map(function (e) { return '<div class="job"><span>' + h(e.program) + (e.school ? ', ' + h(e.school) : '') + '</span><span>' + h(e.year) + '</span></div>'; }).join('') : '') +
+      (certs.length ? '<h4>Certifications &amp; licenses</h4><ul>' + certs.map(function (c) { return '<li>' + h(c.name) + '</li>'; }).join('') + '</ul>' : '') +
+      (t.skills ? '<h4>Core skills</h4><p>' + h(t.skills) + '</p>' : '') + '</div>';
+    var m = document.createElement('div'); m.className = 'modal';
+    m.innerHTML = '<div class="sheet tailor-sheet"><h2 style="margin-top:0">Your resume for ' + h(src.title) + '</h2><p class="small muted">' + (mode === 'ai' ? 'Reworded to match this posting, using only what is already on your resume.' : 'Reordered to put your most relevant experience first.') + ' Check it before you send it.</p>' +
+      (t.tips && t.tips.length ? '<div class="notice small"><b>Tips:</b> ' + t.tips.map(h).join(' · ') + '</div>' : '') + '<div class="tailor-preview">' + sheet + '</div>' +
+      (t.cover ? '<details class="card"><summary><b>Short cover note</b></summary><p style="white-space:pre-line">' + h(t.cover) + '</p><button class="ghost" data-tl="copy">Copy note</button></details>' : '') +
+      '<div class="row" style="margin-top:10px"><button class="ghost" data-tl="print">Print / save PDF</button>' + (src.url ? '<button class="gold" data-tl="apply">Apply now</button>' : '') + '<button class="ghost" data-tl="close">Close</button></div></div>';
+    m.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-tl]'); if (ev.target === m) return m.remove(); if (!b) return;
+      var a = b.getAttribute('data-tl');
+      if (a === 'close') m.remove();
+      if (a === 'copy') { try { navigator.clipboard.writeText(t.cover); toast('Copied.'); } catch (e) {} }
+      if (a === 'print') { document.getElementById('printArea').innerHTML = sheet; window.print(); }
+      if (a === 'apply') {
+        window.open(src.url, '_blank', 'noopener');
+        var tr = kind === 'track' ? src : items('track').filter(function (x) { return x.jobId === src.id; })[0];
+        var patch = { status: 'Applied', dateApplied: today(), resumeUsed: 'Tailored for ' + src.title };
+        var fu = new Date(); fu.setDate(fu.getDate() + 7); patch.followUp = fu.toISOString().slice(0, 10);
+        if (tr) trackUpdate(tr.id, patch, 'Applied with a tailored resume');
+        else saveItem('track', Object.assign({ jobId: src.id, title: src.title, company: src.company, category: src.category, pay: src.pay, type: src.type, location: src.location, url: src.url, source: 'Connect job board', requirements: src.requirements || '', log: [{ d: today(), t: 'Applied with a tailored resume' }] }, patch), null);
+        m.remove(); toast('Marked Applied. We set a follow-up for one week.');
+      }
+    });
+    document.body.appendChild(m);
+  }
+
   /* upgrade & shop */
   VIEWS.upgrade = function () {
     var me = S.me, pro = me.premium;
@@ -722,7 +831,7 @@
       '<div><label for="pSpec">Your field</label><select id="pSpec" required><option value="">Choose…</option>' + specOptions(me.specialty) + '</select></div>' +
       '<div><label for="pSchool">Date you started school (Year One)</label><input id="pSchool" type="date" value="' + h(me.schoolStart) + '"></div>' +
       '<div><label for="pDigest">Email me an update with jobs, deadlines and a word of wisdom</label><select id="pDigest">' + [['daily', 'Every day'], ['weekly', 'Every week (Mondays)'], ['monthly', 'Every month (the 1st)'], ['off', 'Don\'t email updates']].map(function (o) { return '<option value="' + o[0] + '"' + ((me.digest || 'weekly') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
-      '<div class="full"><span class="label">Also show me jobs in these fields</span><div class="chips">' + S.specialties.filter(function (sp) { return sp !== me.specialty; }).map(function (sp) { var on = (me.fields || []).indexOf(sp) > -1; return '<label class="chip check-chip"><input type="checkbox" data-xfield value="' + h(sp) + '"' + (on ? ' checked' : '') + '> ' + h(sp) + '</label>'; }).join('') + '</div></div>' +
+      '<div class="full"><span class="label">My trades (study material and jobs)</span><p class="small muted" style="margin:0 0 6px">Your main field is above. Add more trades here and they show up in Learn and on the job board.</p><div class="chips">' + S.specialties.filter(function (sp) { return sp !== me.specialty; }).map(function (sp) { var on = (me.fields || []).indexOf(sp) > -1; return '<label class="chip check-chip"><input type="checkbox" data-xfield value="' + h(sp) + '"' + (on ? ' checked' : '') + '> ' + h(sp) + '</label>'; }).join('') + '</div></div>' +
       '<div class="full"><label class="check"><input type="checkbox" id="pAlerts"' + (me.alerts ? ' checked' : '') + '> Email me new jobs and rule changes for my fields</label></div>' +
       '<div class="full"><label class="check"><input type="checkbox" id="pShare"' + (me.share ? ' checked' : '') + '> Let Crisp Cares, Crisp Clean and CMCC see my resume and contact me about openings</label><p class="small muted" style="margin:4px 0 0 32px">Off by default. Your tracker, licenses and logs are never shared.</p></div>' +
       '</div><button class="primary" type="submit" style="margin-top:12px">Save</button></form>' +
@@ -831,6 +940,15 @@
   }
 
   /* unions */
+  var UNION_STEPS = ['Read the requirements', 'Gather papers (ID, diploma/GED, transcripts, birth certificate)', 'Fill out the application', 'Take the aptitude test', 'Interview', 'Get ranked or accepted', 'Start the apprenticeship'];
+  function unionDone(t) { var d = Array.isArray(t.steps) ? t.steps : []; return UNION_STEPS.map(function (_, i) { return !!d[i]; }); }
+  function unionNext(t) { var d = unionDone(t), i = d.indexOf(false); return i < 0 ? '' : UNION_STEPS[i]; }
+  function unionProgressCard(t) {
+    var d = unionDone(t), n = d.filter(Boolean).length;
+    return '<div class="card union-prog"><div class="spread"><b>' + h(t.company || t.title) + '</b><span class="tag ' + (n === d.length ? 'ok' : 'navy') + '">' + n + ' of ' + d.length + ' done</span></div><div class="progress"><span style="width:' + Math.round(n / d.length * 100) + '%"></span></div>' +
+      '<ul class="ustep">' + UNION_STEPS.map(function (stp, i) { return '<li><button type="button" class="' + (d[i] ? 'on' : '') + '" data-act="unionStep" data-id="' + h(t.id) + '" data-i="' + i + '" aria-pressed="' + d[i] + '"><i>' + (d[i] ? '✓' : (i + 1)) + '</i><span>' + h(stp) + '</span></button></li>'; }).join('') + '</ul>' +
+      (t.followUp ? '<p class="small muted" style="margin:6px 0 0">Deadline / window: ' + h(fmtDate(t.followUp)) + '</p>' : '') + '</div>';
+  }
   VIEWS.unions = function () {
     var st = S.unionState || 'MI', tf = S.unionTrade || 'mine', sp = S.me.specialty;
     var list = S.unions.filter(function (u) { return (st === 'all' || u.state === st || u.state === 'All') && (tf === 'all' || u.trade === 'All' || !sp || sp === 'Other' || u.trade === sp); });
@@ -840,7 +958,7 @@
       (list.map(function (u) {
         var d = u.deadline ? daysUntil(u.deadline) : null;
         var tag = d === null ? '' : d < 0 ? '<span class="tag">Window date passed — check for news</span>' : d <= 30 ? '<span class="tag bad">' + (d === 0 ? 'Today' : d + ' days') + '</span>' : '<span class="tag warn">' + h(fmtDate(u.deadline)) + '</span>';
-        var tracked = items('track').some(function (t) { return t.unionId === u.id; });
+        var tracked = items('track').filter(function (t) { return t.unionId === u.id; })[0];
         var row = function (k, v) { return v ? '<p><b>' + k + '</b><br>' + h(v) + '</p>' : ''; };
         return '<div class="card"><div class="spread"><div><h3>' + h(u.name) + '</h3><div class="small muted">' + [u.trade, u.area].filter(Boolean).map(h).join(' · ') + '</div></div>' + tag + '</div>' +
           (u.deadlineNote ? '<div class="notice" style="margin-top:8px"><b>Applications:</b> ' + h(u.deadlineNote) + '</div>' : '') +
@@ -848,7 +966,7 @@
           row('What you sign up for', u.signUp) + row('What you need', u.requirements) + row('How to apply', u.howToApply) + row('Hours', u.hours) + row('Pay', u.pay) + row('How it works', u.howItWorks) +
           (u.address ? row('Where', u.address) : '') + '<p class="small muted">Checked ' + h(fmtDate(u.verified)) + (u.source ? ' · <a href="' + h(u.source) + '" target="_blank" rel="noopener">source</a>' : '') + '</p></details>' +
           '<div class="row">' + (u.website ? '<a class="btn primary" href="' + h(u.website) + '" target="_blank" rel="noopener">Website</a>' : '') + (u.phone ? '<a class="btn ghost" href="tel:' + h(u.phone.replace(/[^0-9+]/g, '')) + '">Call ' + h(u.phone) + '</a>' : '') +
-          (tracked ? '<span class="tag ok">In your tracker</span>' : '<button class="ghost" data-act="trackUnion" data-id="' + h(u.id) + '">Add to my tracker</button>') + '</div></div>';
+          (tracked ? '' : '<button class="gold" data-act="trackUnion" data-id="' + h(u.id) + '">Start my application</button>') + '</div>' + (tracked ? unionProgressCard(tracked) : '') + '</div>';
       }).join('') || '<p class="muted">Nothing listed for this filter yet.</p>') +
       '<p class="small muted">Your email updates include union dates coming up for your field. Know of a union we should add? Email LmiraC@crispcleans.com.</p>';
   };
@@ -859,20 +977,30 @@
   function wisdomOrder() { var w = S.wisdom; if (!w.length) return []; var i = dayIndex() % w.length; return w.slice(i).concat(w.slice(0, i)); }
   function savedKey() { return 'connect_saved_' + (S.me && S.me.email || ''); }
   function savedList() { try { return JSON.parse(store(savedKey()) || '[]'); } catch (e) { return []; } }
+  // Daily Gem: a small card on Home that rotates on its own. Nothing to tap through, no new page.
   function wisdomToday() {
-    var w = wisdomOrder()[0]; if (!w) return '';
-    var col = WCOLORS[w.c] || WCOLORS.Business;
-    return '<button type="button" class="wis-mini" style="background:' + col[1] + '" data-act="goWisdom"><span class="wis-mini-art">' + window.artFor(w.t + ' ' + w.b, w.c) + '</span><span><span class="wis-cat" style="color:' + col[0] + '">Today\'s wisdom · ' + h(w.c) + '</span><b class="wis-mini-title">' + h(w.t) + '</b><span class="small muted">Tap to swipe more</span></span></button>';
+    var list = wisdomOrder(); if (!list.length) return '';
+    var i = (S.gemI || 0) % list.length, w = list[i], col = WCOLORS[w.c] || WCOLORS.Business;
+    return '<div class="gem" id="gem" style="background:' + col[1] + '"><span class="gem-art">' + window.artFor(w.t + ' ' + w.b, w.c) + '</span><div class="gem-text"><span class="wis-cat" style="color:' + col[0] + '">Daily Gem · ' + h(w.c) + '</span><b class="gem-title" style="color:' + col[0] + '">' + h(w.t) + '</b><span class="gem-body">' + h(w.b) + '</span></div>' +
+      '<div class="gem-actions"><button type="button" class="round sm" data-act="gemSay" aria-label="Read it to me"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM16 8a5 5 0 0 1 0 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button><button type="button" class="round sm" data-act="gemNext" aria-label="Next gem">›</button></div>' +
+      '<div class="gem-dots">' + [0, 1, 2, 3, 4, 5].map(function (k) { return '<i class="' + (k === i % 6 ? 'on' : '') + '"></i>'; }).join('') + '</div></div>';
+  }
+  function gemTick() {
+    clearInterval(S.gemTimer);
+    S.gemTimer = setInterval(function () {
+      var g = document.getElementById('gem'); if (!g || S.tab !== 'home' || document.hidden) return;
+      S.gemI = (S.gemI || 0) + 1; var tmp = document.createElement('div'); tmp.innerHTML = wisdomToday(); g.classList.add('fade'); setTimeout(function () { if (g.parentNode) g.replaceWith(tmp.firstChild); }, 250);
+    }, 9000);
   }
   VIEWS.wisdom = function () {
     var cats = []; S.wisdom.forEach(function (x) { if (cats.indexOf(x.c) < 0) cats.push(x.c); });
     var cf = S.wisdomCat || 'All', saved = savedList();
     var list = wisdomOrder().filter(function (x) { return cf === 'All' ? true : cf === 'Saved' ? saved.indexOf(x.t) > -1 : x.c === cf; });
-    return '<h1 class="sr-only">Wisdom</h1><div class="chips wis-chips"><button type="button" class="chip play-chip" data-act="wisPlayAll" aria-label="Play all out loud">▶ Play all</button>' + ['All', 'Saved'].concat(cats).map(function (c) { return '<button type="button" class="chip' + (c === cf ? ' on' : '') + '" data-act="wisdomCat" data-v="' + h(c) + '">' + (c === 'Saved' ? '♥ ' : '') + h(c) + (c === 'Saved' ? ' (' + saved.length + ')' : '') + '</button>'; }).join('') + '</div>' +
+    return '<h1 class="sr-only">Gems</h1><div class="chips wis-chips"><button type="button" class="chip play-chip" data-act="wisPlayAll" aria-label="Play all out loud">▶ Play all</button>' + ['All', 'Saved'].concat(cats).map(function (c) { return '<button type="button" class="chip' + (c === cf ? ' on' : '') + '" data-act="wisdomCat" data-v="' + h(c) + '">' + (c === 'Saved' ? '♥ ' : '') + h(c) + (c === 'Saved' ? ' (' + saved.length + ')' : '') + '</button>'; }).join('') + '</div>' +
       '<div class="wis-feed" id="wisFeed">' + (list.map(function (x, i) {
         var col = WCOLORS[x.c] || WCOLORS.Business, isSaved = saved.indexOf(x.t) > -1;
         return '<article class="wis-card" data-i="' + i + '" style="background:' + col[1] + '"><div class="wis-art">' + window.artFor(x.t + ' ' + x.b, x.c) + '</div>' +
-          '<div class="wis-text"><span class="wis-cat" style="color:' + col[0] + '">' + h(x.c) + ' wisdom</span><h2 class="wis-title" style="color:' + col[0] + '">' + h(x.t) + '</h2><p class="wis-body">' + h(x.b) + '</p></div>' +
+          '<div class="wis-text"><span class="wis-cat" style="color:' + col[0] + '">' + h(x.c) + ' · words to work by</span><h2 class="wis-title" style="color:' + col[0] + '">' + h(x.t) + '</h2><p class="wis-body">' + h(x.b) + '</p></div>' +
           '<div class="wis-actions"><button type="button" class="round" data-act="wisSay" data-i="' + i + '" aria-label="Read out loud"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM16 8a5 5 0 0 1 0 8M18.5 5.5a8.5 8.5 0 0 1 0 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>' +
           '<button type="button" class="round' + (isSaved ? ' saved' : '') + '" data-act="wisHeart" data-t="' + h(x.t) + '" aria-pressed="' + isSaved + '" aria-label="' + (isSaved ? 'Remove from saved' : 'Save') + '">♥</button>' +
           '<button type="button" class="round" data-act="wisShare" data-i="' + i + '" aria-label="Share"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 14v6h14v-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>' +
@@ -925,9 +1053,9 @@
   }
   function listen(what) {
     var f = S.learnField, L = LEARN[f] || { refreshers: [], quiz: [] };
-    if (what === 'ref') { var refs = L.refreshers.concat(proRef(f)); if (!refs.length) return toast('No refreshers for this field yet.'); playList(refs.map(function (r) { return { text: r[0] + '. ' + r[1], show: r[0], pause: 1200 }; }), f + ' refreshers'); }
-    else if (what === 'quiz') { var qs = shuffle(L.quiz.concat(proQuiz(f))); if (!qs.length) return toast('No quiz for this field yet.'); playList(quizToSpeech(qs), f + ' quiz'); }
-    else if (what === 'wisdom') { playList(wisdomOrder().map(function (x) { return { text: x.c + ' wisdom. ' + x.t + '. ' + x.b, show: x.t, pause: 1500 }; }), 'Wisdom'); }
+    if (what === 'ref') { var refs = deckFor(f); if (!refs.length) return toast('No cards for this field yet.'); playList(refs.map(function (r) { return { text: r.t + '. ' + r.b, show: r.t, pause: 1200 }; }), (S.learnTopic || f) + ' cards'); }
+    else if (what === 'quiz') { var qs = shuffle(basicQuiz(f, S.learnTopic).concat(S.learnTopic ? [] : proQuiz(f))); if (!qs.length) return toast('No quiz for this field yet.'); playList(quizToSpeech(qs), (S.learnTopic || f) + ' quiz'); }
+    else if (what === 'wisdom') { playList(wisdomOrder().map(function (x) { return { text: x.t + '. ' + x.b, show: x.t, pause: 1500 }; }), 'Gems'); }
     else { var ups = S.updates.filter(function (u) { return u.field === f || u.field === 'All' || (f === 'HVAC/R' && u.field === 'EPA 608'); }); playList(ups.map(function (u) { return { text: 'Rule change. ' + u.title + '. ' + u.body, show: u.title, pause: 1500 }; }), 'Rule changes'); }
   }
 
@@ -983,6 +1111,13 @@
         return api('deleteItem', { id: id }).then(function () { dropLocal(); toast('Deleted.'); }).catch(function (er) { if (isOffline(er)) { enqueue({ op: 'delete', id: id }); dropLocal(); return toast('Deleted on this phone. It syncs when you\'re back online.'); } fail(er); });
       }
       case 'syncNow': return flush();
+      case 'learnTopic': S.learnTopic = el.getAttribute('data-t'); S.cardI = 0; S.cardFlip = false; return render();
+      case 'topicQuiz': { S.learnTopic = el.getAttribute('data-t'); var tb = document.createElement('button'); tb.setAttribute('data-n', '10'); tb.setAttribute('data-t', S.learnTopic); tb.setAttribute('data-act', 'startQuiz'); tb.hidden = true; document.body.appendChild(tb); tb.click(); tb.remove(); return; }
+      case 'goTab': return go(id);
+      case 'gemNext': { S.gemI = (S.gemI || 0) + 1; var g0 = document.getElementById('gem'); if (g0) { var t0 = document.createElement('div'); t0.innerHTML = wisdomToday(); g0.replaceWith(t0.firstChild); } gemTick(); return; }
+      case 'gemSay': { var gl = wisdomOrder(), gw = gl[(S.gemI || 0) % gl.length]; if (gw) { xpAdd(2); sayNow(gw.t + '. ' + gw.b, gw.t); } return; }
+      case 'unionStep': { var ut = items('track').filter(function (x) { return x.id === id; })[0]; if (!ut) return; var ud = unionDone(ut), ui = Number(el.getAttribute('data-i')); ud[ui] = !ud[ui]; var all = ud.every(Boolean); return trackUpdate(id, { steps: ud, status: all ? 'Offer accepted' : ud[2] ? 'Applied' : (ut.status || 'Saved') }, (ud[ui] ? 'Done: ' : 'Undone: ') + UNION_STEPS[ui]); }
+      case 'tailor': return tailorFlow(el.getAttribute('data-k'), id, el);
       case 'howVideo': store('connect_seen_video', '1'); if (window.ConnectHowItWorks) ConnectHowItWorks(); return;
       case 'trackFilter': S.trackFilter = el.getAttribute('data-f'); return render();
       case 'trackStage': { var ns = el.getAttribute('data-s'), patch = { status: ns }; var tt = items('track').filter(function (x) { return x.id === id; })[0]; if (ns === 'Applied' && tt && !tt.dateApplied) { patch.dateApplied = today(); if (!tt.followUp) { var fu = new Date(); fu.setDate(fu.getDate() + 7); patch.followUp = fu.toISOString().slice(0, 10); } } return trackUpdate(id, patch, 'Status: ' + ns); }
@@ -1004,9 +1139,10 @@
       }
       case 'openUpdates': S.learnField = S.me.specialty; S.learnMode = 'rules'; go('learn'); setTimeout(function () { var r = document.getElementById('rules'); if (r) r.scrollIntoView(); }, 50); return;
       case 'startQuiz': {
-        var f = S.learnField, L = LEARN[f] || { quiz: [] }, n = Number(el.getAttribute('data-n'));
-        var pool = n > 100 ? L.quiz.concat(proQuiz(f)) : L.quiz.concat(S.me.premium ? proQuiz(f) : []);
-        S.quiz = { field: f, list: shuffle(pool).slice(0, n), i: 0, score: 0, answered: null, n: n }; return render();
+        var f = S.learnField, n = Number(el.getAttribute('data-n')), tp = el.hasAttribute('data-t') ? el.getAttribute('data-t') : (S.learnTopic || '');
+        var pool = basicQuiz(f, tp).concat(tp ? [] : (n > 100 || S.me.premium ? proQuiz(f) : []));
+        if (!pool.length) return toast('No questions here yet.');
+        S.quiz = { field: f, topic: tp, list: shuffle(pool).slice(0, n), i: 0, score: 0, answered: null, n: n }; return render();
       }
       case 'answer': { var q = S.quiz; if (q.answered != null) return; q.answered = Number(el.getAttribute('data-k')); var good = q.answered === q.list[q.i].a; if (good) { q.score++; xpAdd(10); } render(); if (autoRead()) sayNow((good ? 'Correct. ' : 'Not quite. The answer is ' + q.list[q.i].o[q.list[q.i].a] + '. ') + q.list[q.i].why, 'Answer'); return; }
       case 'nextQ': S.quiz.i++; S.quiz.answered = null; render(); window.scrollTo(0, 0); return;
