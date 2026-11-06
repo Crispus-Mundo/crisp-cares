@@ -53,7 +53,7 @@ function syncHeads_(names) {
 // HVAC / mechanical openings from the Lamira Clean job list. Posted quietly (no alert blast); adds only ones not already on the board.
 var CURATED_JOBS = [
   { key: 'continuum-pm', title: 'HVAC Preventative Maintenance Technician (Entry-Level)', company: 'Continuum Services', pay: '$45,481–$58,769/yr', type: 'Full-time, W-2', location: 'Detroit, MI (dispatched from home)', url: 'https://to.indeed.com/aaxl2mdtfqj2',
-    description: 'Entry-level preventive maintenance on commercial HVAC. Trade-school students welcome.', requirements: 'Entry level. HVAC schooling helps. Valid driver license.', benefits: 'Company van, gas card and iPad. Paid training, 401(k), health insurance. W-2 hours can count toward Michigan mechanical license experience.' },
+    description: 'Entry-level preventive maintenance on commercial HVAC. Trade-school students welcome.', requirements: 'Entry level. Trade-school students welcome.', benefits: 'Company van, gas card and iPad. Paid training, 401(k), health insurance. W-2 hours can count toward Michigan mechanical license experience.' },
   { key: 'mhc-apprentice', title: 'HVAC Install Technician – Apprentice Track', company: 'Mechanical Heating and Cooling', pay: '$24–$45/hr', type: 'Full-time, W-2', location: 'Dearborn Heights, MI', url: 'https://to.indeed.com/aa6cqygvzskv',
     description: 'Apprentice track built for trade-school students. Supervised install work.', requirements: 'Hand and power tools. Willing to learn installs under a lead.', benefits: 'Lead installers earn up to $45/hr. Supervised hours toward licensing.' },
   { key: 'corewell-plant', title: 'Plant and Facilities Tech', company: 'Corewell Health (Grosse Pointe Hospital)', pay: '$55,762–$79,281/yr', type: 'Full-time, W-2', location: 'Grosse Pointe, MI', url: 'https://to.indeed.com/aat9hf4xdmgw',
@@ -88,8 +88,15 @@ function importJobs_(me) {
   if (me.role !== 'admin') fail_('Admins only.');
   syncHeads_(['Jobs', 'Members']);
   var added = withLock_(function () {
-    var have = {};
-    rows_('Jobs').forEach(function (j) { if (j.key) have[j.key] = 1; });
+    var have = {}, byKey = {};
+    CURATED_JOBS.forEach(function (c) { byKey[c.key] = c; });
+    rows_('Jobs').forEach(function (j) {
+      if (!j.key) return;
+      have[j.key] = 1;
+      var c = byKey[j.key]; if (!c) return;   // refresh the wording of curated posts; status is left alone
+      var changed = ['title', 'company', 'pay', 'type', 'location', 'url', 'description', 'requirements', 'benefits'].some(function (k) { return String(j[k]) !== String(c[k]); }) || j.itin !== ITIN_NOTE;
+      if (changed) { ['title', 'company', 'pay', 'type', 'location', 'url', 'description', 'requirements', 'benefits'].forEach(function (k) { j[k] = c[k]; }); j.itin = ITIN_NOTE; j.checked = new Date(); write_('Jobs', j); }
+    });
     var n = 0, now = new Date();
     CURATED_JOBS.forEach(function (c, i) {
       if (have[c.key]) return;

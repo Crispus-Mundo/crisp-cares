@@ -867,7 +867,7 @@
     var cats = []; S.wisdom.forEach(function (x) { if (cats.indexOf(x.c) < 0) cats.push(x.c); });
     var cf = S.wisdomCat || 'All', saved = savedList();
     var list = wisdomOrder().filter(function (x) { return cf === 'All' ? true : cf === 'Saved' ? saved.indexOf(x.t) > -1 : x.c === cf; });
-    return '<h1 class="sr-only">Wisdom</h1><div class="chips wis-chips">' + ['All', 'Saved'].concat(cats).map(function (c) { return '<button type="button" class="chip' + (c === cf ? ' on' : '') + '" data-act="wisdomCat" data-v="' + h(c) + '">' + (c === 'Saved' ? '♥ ' : '') + h(c) + (c === 'Saved' ? ' (' + saved.length + ')' : '') + '</button>'; }).join('') + '</div>' +
+    return '<h1 class="sr-only">Wisdom</h1><div class="chips wis-chips"><button type="button" class="chip play-chip" data-act="wisPlayAll" aria-label="Play all out loud">▶ Play all</button>' + ['All', 'Saved'].concat(cats).map(function (c) { return '<button type="button" class="chip' + (c === cf ? ' on' : '') + '" data-act="wisdomCat" data-v="' + h(c) + '">' + (c === 'Saved' ? '♥ ' : '') + h(c) + (c === 'Saved' ? ' (' + saved.length + ')' : '') + '</button>'; }).join('') + '</div>' +
       '<div class="wis-feed" id="wisFeed">' + (list.map(function (x, i) {
         var col = WCOLORS[x.c] || WCOLORS.Business, isSaved = saved.indexOf(x.t) > -1;
         return '<article class="wis-card" data-i="' + i + '" style="background:' + col[1] + '"><div class="wis-art">' + window.artFor(x.t + ' ' + x.b, x.c) + '</div>' +
@@ -877,7 +877,7 @@
           '<button type="button" class="round" data-act="wisShare" data-i="' + i + '" aria-label="Share"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 14v6h14v-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>' +
           (i === 0 ? '<div class="swipe-hint">Swipe up for the next one ↑</div>' : '') + '</article>';
       }).join('') || '<p class="muted" style="padding:20px">Nothing saved yet. Tap ♥ on a card to keep it here.</p>') + '</div>' +
-      '<button type="button" class="gold play-fab" data-act="wisPlayAll" aria-label="Play all out loud">▶ Play all</button>';
+      '';
   };
   function wisList() { var cf = S.wisdomCat || 'All', saved = savedList(); return wisdomOrder().filter(function (x) { return cf === 'All' ? true : cf === 'Saved' ? saved.indexOf(x.t) > -1 : x.c === cf; }); }
 
