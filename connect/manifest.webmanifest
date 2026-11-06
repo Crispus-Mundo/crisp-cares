@@ -1,0 +1,16 @@
+{
+  "name": "Connect — Crisp Cares, Crisp Clean & CMCC",
+  "short_name": "Connect",
+  "description": "Taxes, business setup, heating & cooling, home care, patient advocacy, jobs and training — go straight to the right place.",
+  "start_url": "./?src=homescreen",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FAF7F0",
+  "theme_color": "#1B2951",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
