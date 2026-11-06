@@ -7,6 +7,8 @@
   var LOG_TYPES = ['Hours', 'Mileage', 'Expense'];
   var S = { token: null, me: null, jobs: [], items: [], updates: [], unions: [], wisdom: [], resources: [], chat: [], aiOn: false, plans: [], products: [], orders: [], specialties: [], premium: null, admin: null, tab: 'home', edit: null, quiz: null, learnField: null, files: {} };
   var app = document.getElementById('app');
+  var Q = new URLSearchParams(location.search);
+  var JOIN = Q.get('join') === '1', JOIN_SRC = (Q.get('src') || 'qr').replace(/[^a-z0-9_-]/gi, '').slice(0, 30);
 
   /* ---------------- helpers */
   function h(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -44,7 +46,9 @@
     app.innerHTML =
       '<h1>Sign in to Connect</h1><p class="muted">Your job tracker, resume, license wallet and hours log stay private to you. Jobs and rule-change alerts are shared with everyone who signs up.</p>' +
       (msg ? '<div class="notice err" role="alert">' + h(msg) + '</div>' : '') +
-      (step === 'code'
+      (step !== 'code' && JOIN
+        ? '<form id="emailForm" class="card"><h2 style="margin-top:0">Join Connect</h2><p class="small muted">Free. Takes a minute. We\'ll email you a code to finish.</p><label for="jName">Full name</label><input id="jName" autocomplete="name" required><label for="jPhone">Mobile phone</label><input id="jPhone" type="tel" autocomplete="tel" inputmode="tel" required placeholder="(248) 555-0123"><label for="email">Email</label><input id="email" type="email" autocomplete="email" required value="' + h(email || '') + '"><p class="small muted" style="margin-top:8px">Your name, phone and email go to CMCC Training Institute, Crisp Cares and Crisp Clean so we can send you jobs, updates and your sign-in codes. Your tracker, resume and licenses stay private to you.</p><button class="primary" type="submit">Email me my code</button></form>'
+        : step === 'code'
         ? '<form id="codeForm" class="card"><p>We emailed a 6-digit code to <b>' + h(email) + '</b>. It expires in 10 minutes.</p><label for="code">Code</label><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required><div class="row" style="margin-top:12px"><button class="primary" type="submit">Sign in</button><button class="ghost" type="button" data-act="restart">Use a different email</button></div></form>'
         : '<form id="emailForm" class="card"><label for="email">Email</label><input id="email" type="email" autocomplete="email" required value="' + h(email || '') + '"><p class="small muted" style="margin-top:8px">We\'ll email you a one-time code. No password needed.</p><button class="primary" type="submit">Email me a code</button></form>') +
       '<p class="small muted">New here? Signing in creates your free account. <a href="../">Back to Connect</a></p>';
@@ -58,8 +62,10 @@
           .catch(function (err) { busy(btn, false); signInView('code', email, err.message); });
       } else {
         var em = field('email').toLowerCase();
+        var extra = JOIN ? { name: field('jName'), phone: field('jPhone'), src: JOIN_SRC } : {};
+        if (JOIN && (!extra.name || extra.phone.replace(/\D/g, '').length < 10)) { busy(btn, false); return signInView('email', em, 'Please enter your name and a 10-digit phone number.'); }
         busy(btn, true, 'Sending…');
-        api('requestCode', { email: em }).then(function () { signInView('code', em); })
+        api('requestCode', Object.assign({ email: em }, extra)).then(function () { signInView('code', em); })
           .catch(function (err) { busy(btn, false); signInView('email', em, err.message); });
       }
     });
@@ -453,7 +459,9 @@
     var partners = a.members.filter(function (m) { return m.partnerStatus === 'pending'; });
     var reqs = a.orders.filter(function (o) { return o.status === 'requested'; });
     var shared = a.members.filter(function (m) { return m.share; });
-    return '<h1>Admin</h1><div class="grid2"><div class="stat"><b>' + a.members.length + '</b>members</div><div class="stat"><b>' + a.members.filter(function (m) { return m.alerts; }).length + '</b>with alerts on</div><div class="stat"><b>' + a.pendingJobs.length + '</b>jobs to approve</div><div class="stat"><b>' + a.mailQuotaLeft + '</b>emails left today</div></div>' +
+    return '<h1>Admin</h1><div class="row" style="margin-bottom:12px"><button class="gold" data-act="showQR">Show my QR code</button><button class="ghost" data-act="exportContacts">Download contacts (CSV)</button><button class="ghost" data-act="openBroadcast">Send an update to members</button></div>' +
+      (S.edit === 'broadcast' ? '<form class="card" data-form="broadcast"><h3>Send an update</h3><label for="bAud">To</label><select id="bAud"><option value="all">Everyone (' + a.members.length + ')</option>' + S.specialties.map(function (s) { var n = a.members.filter(function (m) { return m.specialty === s; }).length; return n ? '<option value="' + h(s) + '">' + h(s) + ' (' + n + ')</option>' : ''; }).join('') + '</select><label for="bSubj">Subject</label><input id="bSubj" required><label for="bBody">Message</label><textarea id="bBody" required style="min-height:140px"></textarea><p class="small muted">Sends one email per member from crispcleaninc (about ' + a.mailQuotaLeft + ' left today). Replies go to LmiraC@crispcleans.com.</p><div class="row"><button class="primary" type="submit">Send</button><button class="ghost" type="button" data-act="cancelEdit">Cancel</button></div></form>' : '') +
+      '<div class="grid2"><div class="stat"><b>' + a.members.length + '</b>members</div><div class="stat"><b>' + a.members.filter(function (m) { return m.alerts; }).length + '</b>with alerts on</div><div class="stat"><b>' + a.pendingJobs.length + '</b>jobs to approve</div><div class="stat"><b>' + a.mailQuotaLeft + '</b>emails left today</div></div>' +
       '<p class="small" style="margin-top:8px"><a href="' + h(a.sheet) + '" target="_blank" rel="noopener">Open the Connect Members DB sheet</a> — edit prices and pay links in the Plans and Products tabs.</p>' +
       '<h2>Payments to confirm</h2>' + (reqs.length ? '<div class="card">' + reqs.map(function (o) { return '<div class="list-item"><div class="spread"><div><b>' + h(o.name) + '</b> — ' + h(o.price !== '' ? money(o.price) : '') + '<div class="small muted">' + h(o.email) + ' · ' + h(fmtDate(o.created)) + (o.note ? ' · ' + h(o.note) : '') + '</div><div class="small">Payment choice: <b>' + h(PAYOPT[o.payOption] || 'Pay now') + '</b></div>' + (o.docs && o.docs.length ? '<div class="row" style="margin-top:4px">' + o.docs.map(function (d, k) { return '<button class="link" data-act="viewDoc" data-id="' + h(d.id) + '">View proof ' + (k + 1) + '</button>'; }).join('') + '</div>' : '') + '</div></div><div class="row" style="margin-top:6px">' + (o.kind === 'plan' ? '<label for="mo-' + h(o.id) + '" style="margin:0">Months</label><input id="mo-' + h(o.id) + '" style="width:80px" inputmode="numeric" value="' + h(o.months) + '">' : '') + '<button class="primary" data-act="confirmOrder" data-id="' + h(o.id) + '">Mark paid</button><button class="danger" data-act="cancelOrder" data-id="' + h(o.id) + '">Cancel</button></div></div>'; }).join('') + '</div>' : '<p class="muted">None waiting.</p>') +
       '<h2>Jobs to approve</h2>' + (a.pendingJobs.map(function (j) { j.status = 'pending'; return jobCard(j); }).join('') || '<p class="muted">None waiting.</p>') +
@@ -461,7 +469,7 @@
       '<h2>Post a rule change</h2><form class="card" data-form="postUpdate"><div class="form-grid"><div><label for="uField">Field</label><select id="uField">' + specOptions('EPA 608', ['All', 'EPA 608']) + '</select></div><div><label for="uEff">Effective date</label><input id="uEff" type="date"></div><div class="full"><label for="uTitle">Title</label><input id="uTitle" required></div><div class="full"><label for="uBody">What changed (plain words)</label><textarea id="uBody" required></textarea></div><div class="full"><label for="uSrc">Source link</label><input id="uSrc" type="url" placeholder="https://"></div></div><button class="primary" type="submit" style="margin-top:10px">Post and alert members</button></form>' +
       '<div class="card">' + a.updates.map(function (u) { return '<div class="list-item spread"><div><b>' + h(u.title) + '</b><div class="small muted">' + h(u.field) + (u.effective ? ' · ' + h(fmtDate(u.effective)) : '') + '</div></div><button class="link" data-act="delUpdate" data-id="' + h(u.id) + '">Delete</button></div>'; }).join('') + '</div>' +
       '<h2>Give Pro access</h2><form class="card row" data-form="grantPremium"><div style="flex:2;min-width:200px"><label for="gEmail">Member email</label><input id="gEmail" type="email" required></div><div style="flex:1;min-width:90px"><label for="gMonths">Months</label><input id="gMonths" inputmode="numeric" value="1"></div><button class="primary" type="submit" style="align-self:flex-end">Give access</button></form>' +
-      '<h2>Members</h2><div class="card scroll"><table class="simple"><thead><tr><th>Name</th><th>Email</th><th>Field</th><th>Role</th><th>Joined</th><th>Shares resume</th></tr></thead><tbody>' + a.members.map(function (m) { return '<tr><td>' + h(m.name) + '</td><td>' + h(m.email) + '</td><td>' + h(m.specialty) + '</td><td>' + h(m.role) + '</td><td>' + h(fmtDate(m.created)) + '</td><td>' + (m.share ? '<button class="link" data-act="viewShared" data-email="' + h(m.email) + '">View resume</button>' : 'No') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+      '<h2>Members</h2><div class="card scroll"><table class="simple"><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Field</th><th>Came from</th><th>Joined</th><th>Shares resume</th></tr></thead><tbody>' + a.members.map(function (m) { return '<tr><td>' + h(m.name) + (m.verified ? '' : ' <span class="tag warn">code not used yet</span>') + '</td><td>' + (m.phone ? '<a href="tel:' + h(String(m.phone).replace(/[^0-9+]/g, '')) + '">' + h(m.phone) + '</a>' : '') + '</td><td>' + h(m.email) + '</td><td>' + h(m.specialty) + '</td><td>' + h(m.source) + '</td><td>' + h(fmtDate(m.created)) + '</td><td>' + (m.share ? '<button class="link" data-act="viewShared" data-email="' + h(m.email) + '">View resume</button>' : 'No') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
       '<p class="small muted">' + shared.length + ' member(s) share their resume with you.</p>';
   };
 
@@ -681,6 +689,22 @@
       case 'delUpdate': if (!confirm('Delete this rule update?')) return; return api('deleteUpdate', { id: id }).then(function (r) { S.updates = r.updates; S.admin = null; render(); }).catch(fail);
       case 'viewShared': { var mem = S.admin.members.filter(function (x) { return x.email === el.getAttribute('data-email'); })[0]; var r2 = mem.resume || {}; var m3 = document.createElement('div'); m3.className = 'modal'; m3.innerHTML = '<div class="sheet"><h2 style="margin-top:0">' + h(mem.name) + '</h2><p class="small muted">' + h(mem.email) + (mem.phone ? ' · ' + h(mem.phone) : '') + ' · ' + h(mem.specialty) + '</p>' + (r2.headline ? '<p><b>' + h(r2.headline) + '</b></p>' : '') + (r2.summary ? '<p>' + h(r2.summary) + '</p>' : '') + (r2.exp || []).map(function (x) { return '<p><b>' + h(x.title) + '</b>' + (x.company ? ', ' + h(x.company) : '') + ' <span class="muted">' + h([x.start, x.end].filter(Boolean).join(' – ')) + '</span><br><span style="white-space:pre-line">' + h(x.bullets) + '</span></p>'; }).join('') + (r2.skills ? '<p><b>Skills:</b> ' + h(r2.skills) + '</p>' : '') + '<button class="primary" data-close>Close</button></div>'; m3.addEventListener('click', function (ev) { if (ev.target === m3 || ev.target.hasAttribute('data-close')) m3.remove(); }); document.body.appendChild(m3); return; }
       case 'viewDoc': return api('getFile', { fileId: id }).then(function (j) { var bin = atob(j.data), arr = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); window.open(URL.createObjectURL(new Blob([arr], { type: j.mime })), '_blank'); }).catch(fail);
+      case 'showQR': {
+        var url = location.origin + location.pathname + '?join=1&src=qr';
+        var qr = qrcode(0, 'M'); qr.addData(url); qr.make();
+        var mq = document.createElement('div'); mq.className = 'modal';
+        mq.innerHTML = '<div class="sheet" style="text-align:center;background:#fff"><div class="mark" style="justify-content:center;color:var(--navy)">CONNECT</div><h2 style="margin:8px 0 4px">Scan to join</h2><p class="muted" style="margin:0 0 12px">Jobs, unions, study tools and more. Free.</p><div style="max-width:320px;margin:0 auto">' + qr.createSvgTag({ cellSize: 8, margin: 2, scalable: true }) + '</div><p class="small muted" style="word-break:break-all;margin-top:10px">' + h(url) + '</p><button class="primary" data-close style="margin-top:8px">Done</button></div>';
+        mq.addEventListener('click', function (ev) { if (ev.target === mq || ev.target.hasAttribute('data-close')) mq.remove(); });
+        document.body.appendChild(mq);
+        try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () {}); } catch (e) {}
+        return;
+      }
+      case 'exportContacts': {
+        var rows = [['Name', 'Phone', 'Email', 'Field', 'Came from', 'Joined']].concat(S.admin.members.map(function (m) { return [m.name, m.phone, m.email, m.specialty, m.source, fmtDate(m.created)]; }));
+        var csv = rows.map(function (r) { return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(','); }).join('\r\n');
+        var a2 = document.createElement('a'); a2.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a2.download = 'connect-contacts-' + today() + '.csv'; document.body.appendChild(a2); a2.click(); a2.remove(); return;
+      }
+      case 'openBroadcast': S.edit = 'broadcast'; return render();
       case 'askSend': return sendAsk();
       case 'askChip': document.getElementById('askQ').value = el.textContent; return sendAsk();
       case 'askSpeak': { var msg = S.chat[Number(el.getAttribute('data-i'))]; if (msg) playList([{ text: msg.content, show: 'Answer', lang: window.CONNECT_LANG }], 'Answer'); return; }
@@ -728,6 +752,11 @@
         .then(function (r) { var first = !S.me.specialty; S.me = r.me; toast('Saved.'); go(first ? 'home' : 'profile'); }).catch(function (er) { busy(btn, false); fail(er); });
     }
     if (kind === 'ask') return sendAsk();
+    if (kind === 'broadcast') {
+      if (!confirm('Send this to ' + (field('bAud') === 'all' ? 'everyone' : field('bAud') + ' members') + '?')) return;
+      busy(btn, true, 'Sending…');
+      return api('broadcast', { audience: field('bAud'), subject: field('bSubj'), body: field('bBody') }).then(function (r) { S.edit = null; S.admin.mailQuotaLeft = r.mailQuotaLeft; render(); toast('Sent to ' + r.sent + ' member(s).'); }).catch(function (er) { busy(btn, false); fail(er); });
+    }
     if (kind === 'requestPartner') { busy(btn, true); return api('requestPartner', { company: field('pCompany') }).then(function (r) { S.me = r.me; render(); toast('Request sent.'); }).catch(function (er) { busy(btn, false); fail(er); }); }
     if (kind === 'saveResume') {
       var resume = { headline: field('rHead'), city: field('rCity'), email: field('rEmail'), summary: field('rSummary'), exp: collectRows('#expList .exp'), edu: collectRows('#eduList .edu'), skills: field('rSkills'), includeCerts: field('rCerts') };

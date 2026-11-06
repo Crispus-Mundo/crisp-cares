@@ -9,8 +9,8 @@
  * Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone).
  */
 
-var APP_VERSION = 'connect-members v1.0 — 2026-11-06';
-var ADMINS = ['crispcleaninc@gmail.com', 'crispcareses@gmail.com', 'ccyars26@gmail.com'];
+var APP_VERSION = 'connect-members v1.1 — 2026-11-06';
+var ADMINS = ['crispcleaninc@gmail.com']; // ccyars26 is a regular member account by choice
 var APP_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/member/';
 var HUB_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/';
 var SUPPORT_EMAIL = 'LmiraC@crispcleans.com';
@@ -24,7 +24,7 @@ var KINDS = ['track', 'cert', 'log'];
 var SPECIALTIES = ['HVAC/R', 'Tax preparation', 'Home care', 'Phlebotomy & medical', 'Barbering & cosmetology', 'Cleaning & environmental', 'Business owner', 'Other'];
 
 var TABS = {
-  Members: ['email', 'name', 'phone', 'specialty', 'schoolStart', 'alerts', 'share', 'role', 'partnerStatus', 'company', 'created', 'lastLogin', 'resume', 'premiumUntil', 'plan', 'digest', 'lastDigest'],
+  Members: ['email', 'name', 'phone', 'specialty', 'schoolStart', 'alerts', 'share', 'role', 'partnerStatus', 'company', 'created', 'lastLogin', 'resume', 'premiumUntil', 'plan', 'digest', 'lastDigest', 'source', 'verified'],
   Unions: ['id', 'name', 'trade', 'state', 'area', 'website', 'phone', 'address', 'signUp', 'requirements', 'howToApply', 'hours', 'pay', 'howItWorks', 'deadline', 'deadlineNote', 'verified', 'source', 'active', 'order'],
   Updates: ['id', 'field', 'title', 'body', 'effective', 'source', 'created', 'postedBy'],
   Plans: ['id', 'name', 'months', 'price', 'note', 'payLink', 'recurring', 'active', 'order'],
@@ -130,6 +130,7 @@ function route_(action, r) {
     case 'uploadFile': return uploadFile_(me, r);
     case 'getFile': return getFile_(me, r.fileId);
     case 'adminData': return adminData_(me);
+    case 'broadcast': return broadcast_(me, r);
     case 'postUpdate': return postUpdate_(me, r.update || {});
     case 'deleteUpdate': return deleteUpdate_(me, r.id);
     case 'requestOrder': return requestOrder_(me, r.kind, r.refId, r.payOption, r.note);
@@ -208,7 +209,21 @@ function requestCode_(r) {
     rows_('Codes').filter(function (c) { return c.email === email; }).reverse().forEach(function (c) { delete_('Codes', c._row); });
     append_('Codes', { email: email, codeHash: hash_(email + ':' + code), expires: new Date(Date.now() + CODE_MINUTES * 60000), tries: 0 });
   });
-  var member = rows_('Members').filter(function (m) { return m.email === email; })[0];
+  var name = clean_(r.name, 80), phone = clean_(r.phone, 30).replace(/[^0-9+()\-. ]/g, ''), src = clean_(r.src, 40).replace(/[^a-z0-9_-]/gi, '');
+  if (phone && phone.replace(/\D/g, '').length < 10) fail_('Please enter a 10-digit phone number.');
+  var member = withLock_(function () {
+    var m = rows_('Members').filter(function (x) { return x.email === email; })[0];
+    if (!m && name) {
+      append_('Members', { email: email, name: name, phone: phone, specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: ADMINS.indexOf(email) > -1 ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: '', resume: '', source: src || 'join', verified: false });
+      m = rows_('Members').filter(function (x) { return x.email === email; })[0];
+      if (src.indexOf('qr') === 0) notifyAdmins_('New sign-up from your QR code: ' + name, '<p><b>' + esc_(name) + '</b> · ' + esc_(phone) + ' · ' + esc_(email) + '</p><p><a href="' + db_().getUrl() + '">Open the Members sheet</a> · <a href="' + APP_URL + '#admin">Connect admin</a></p>');
+    } else if (m && (name || phone)) {
+      if (name && !m.name) m.name = name;
+      if (phone && !m.phone) m.phone = phone;
+      write_('Members', m);
+    }
+    return m;
+  });
   sendOtpEmail_(email, member && member.name, code);
   logEvent_(email, 'requestCode', '');
   return { sent: true };
@@ -230,10 +245,10 @@ function verifyCode_(r) {
     var m = rows_('Members').filter(function (x) { return x.email === email; })[0];
     var isAdmin = ADMINS.indexOf(email) > -1;
     if (!m) {
-      append_('Members', { email: email, name: '', phone: '', specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: isAdmin ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: new Date(), resume: '' });
+      append_('Members', { source: 'sign-in', verified: true, email: email, name: '', phone: '', specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: isAdmin ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: new Date(), resume: '' });
     } else {
-      m.lastLogin = new Date();
-      if (isAdmin) m.role = 'admin';
+      m.lastLogin = new Date(); m.verified = true;
+      if (isAdmin) m.role = 'admin'; else if (m.role === 'admin') m.role = 'member';
       write_('Members', m);
     }
     var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
@@ -522,8 +537,8 @@ function getFile_(m, fileId) {
 function adminData_(me) {
   if (me.role !== 'admin') fail_('Admins only.');
   var members = rows_('Members').map(function (m) {
-    var o = { email: m.email, name: m.name, specialty: m.specialty, role: m.role, partnerStatus: m.partnerStatus, company: m.company, created: m.created, lastLogin: m.lastLogin, share: bool_(m.share), alerts: bool_(m.alerts) };
-    if (o.share) { try { o.resume = m.resume ? JSON.parse(m.resume) : {}; } catch (e) { o.resume = {}; } o.phone = m.phone; }
+    var o = { email: m.email, name: m.name, phone: m.phone, source: m.source, verified: bool_(m.verified), specialty: m.specialty, role: m.role, partnerStatus: m.partnerStatus, company: m.company, created: m.created, lastLogin: m.lastLogin, share: bool_(m.share), alerts: bool_(m.alerts) };
+    if (o.share) { try { o.resume = m.resume ? JSON.parse(m.resume) : {}; } catch (e) { o.resume = {}; } }
     return o;
   });
   return {
@@ -633,6 +648,22 @@ function sendOtpEmail_(email, name, code) {
     '<div style="border-left:4px solid ' + GOLD + ';background:' + CREAM + ';padding:12px 14px;margin:0 0 18px;font-size:14px"><b>Didn\'t ask for this code?</b> You can ignore this email; no one can sign in without it. Never share this code with anyone. Our team will never ask you for it. If you think someone is trying to get into your account, contact <a href="mailto:' + SUPPORT_EMAIL + '" style="color:' + NAVY + '">' + SUPPORT_EMAIL + '</a>.</div>' +
     '<p style="margin:0">Thank you,<br>The Connect team<br><span style="color:#586079">CMCC Training Institute</span></p>';
   MailApp.sendEmail({ to: email, subject: 'Your Connect passcode: ' + code, htmlBody: emailShell_('Your one-time passcode for Connect', 'Your one-time passcode', inner, 'You are receiving this because someone entered this email address to sign in to Connect.'), name: BRAND + ' — CMCC Training Institute', replyTo: SUPPORT_EMAIL });
+}
+
+
+/* ---------------- admin: send an update to members */
+function broadcast_(me, r) {
+  if (me.role !== 'admin') fail_('Admins only.');
+  var subject = clean_(r.subject, 150), body = clean_(r.body, 6000), aud = String(r.audience || 'all');
+  if (!subject || !body) fail_('Add a subject and a message.');
+  var list = rows_('Members').filter(function (m) { return isEmail_(m.email) && (aud === 'all' || m.specialty === aud); }).map(function (m) { return m.email; });
+  var left = MailApp.getRemainingDailyQuota();
+  if (!list.length) fail_('No members match that group.');
+  if (left < list.length + 1) fail_('Gmail allows ' + left + ' more emails today and this group has ' + list.length + '. Send to a smaller group or try tomorrow.');
+  var html = emailShell_(subject, subject, '<div style="white-space:pre-line">' + esc_(body) + '</div>' + button_(APP_URL, 'Open Connect'), 'You are receiving this because you joined Connect. Change how often we email you under Profile.');
+  for (var i = 0; i < list.length; i += 45) MailApp.sendEmail({ to: SUPPORT_EMAIL, bcc: list.slice(i, i + 45).join(','), subject: subject, htmlBody: html, name: 'Connect — CMCC Training Institute', replyTo: SUPPORT_EMAIL });
+  logEvent_(me.email, 'broadcast', subject + ' -> ' + list.length);
+  return { sent: list.length, mailQuotaLeft: MailApp.getRemainingDailyQuota() };
 }
 /**
  * Connect — rule updates, paid plans, shop and orders.
