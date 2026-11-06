@@ -67,8 +67,9 @@
   function signInView(step, email, msg) {
     document.getElementById('tabs').hidden = true;
     document.getElementById('topRight').innerHTML = '';
+    var bnv = document.getElementById('bottomNav'); if (bnv) bnv.hidden = true; document.body.classList.remove('has-bottom-nav');
     app.innerHTML =
-      '<h1>Sign in to Connect</h1><p class="muted">Your job tracker, resume, license wallet and hours log stay private to you. Jobs and rule-change alerts are shared with everyone who signs up.</p>' +
+      '<h1>Sign in to Connect</h1>' + (window.ConnectWatchButton ? ConnectWatchButton() : '') + '<p class="muted">Your job tracker, resume, license wallet and hours log stay private to you. Jobs and rule-change alerts are shared with everyone who signs up.</p>' +
       (msg ? '<div class="notice err" role="alert">' + h(msg) + '</div>' : '') +
       (step !== 'code' && JOIN
         ? '<form id="emailForm" class="card"><h2 style="margin-top:0">Join Connect</h2><p class="small muted">Free. Takes a minute. We\'ll email you a code to finish.</p><label for="jName">Full name</label><input id="jName" autocomplete="name" required><label for="jPhone">Mobile phone</label><input id="jPhone" type="tel" autocomplete="tel" inputmode="tel" required placeholder="(248) 555-0123"><label for="email">Email</label><input id="email" type="email" autocomplete="email" required value="' + h(email || '') + '"><p class="small muted" style="margin-top:8px">Your name, phone and email go to CMCC Training Institute, Crisp Cares and Crisp Clean so we can send you jobs, updates and your sign-in codes. Your tracker, resume and licenses stay private to you.</p><button class="primary" type="submit">Email me my code</button></form>'
@@ -201,7 +202,7 @@
     var nav = document.getElementById('tabs'); nav.hidden = true;
     var MAIN = [['home', 'Home', 'home'], ['learn', 'Learn', 'bulb'], ['wisdom', 'Wisdom', 'mountain'], ['jobs', 'Jobs', 'briefcase'], ['more', 'More', 'people']];
     var inMain = MAIN.some(function (m) { return m[0] === S.tab; });
-    var bn = document.getElementById('bottomNav'); bn.hidden = false;
+    var bn = document.getElementById('bottomNav'); bn.hidden = false; document.body.classList.add('has-bottom-nav');
     bn.innerHTML = MAIN.map(function (m) { var on = S.tab === m[0] || (m[0] === 'more' && !inMain); return '<button type="button" data-tab="' + m[0] + '"' + (on ? ' aria-current="page"' : '') + '><span class="bn-icon">' + ART[m[2]] + '</span><span>' + m[1] + '</span></button>'; }).join('');
     document.body.classList.toggle('feed-mode', S.tab === 'wisdom');
     document.getElementById('tabList').innerHTML = TABS().map(function (t) { return '<button type="button" data-tab="' + t[0] + '"' + (S.tab === t[0] ? ' aria-current="page"' : '') + '>' + h(t[1]) + '</button>'; }).join('');
@@ -218,10 +219,10 @@
 
   /* ---------------- views */
   var VIEWS = {};
-  var MORE = [['ask', 'Ask & help', 'chat', 'sky'], ['unions', 'Unions', 'handshake', 'sand'], ['tracker', 'My job tracker', 'briefcase', 'navy'], ['wallet', 'Licenses', 'shield', 'mint'], ['log', 'Hours & miles', 'clock', 'sun'], ['resume', 'Resume', 'book', 'lav'], ['upgrade', 'Pro & shop', 'coins', 'rose'], ['profile', 'Profile', 'people', 'sky']];
+  var MORE = [['ask', 'Ask & help', 'chat', 'sky'], ['unions', 'Unions', 'handshake', 'sand'], ['tracker', 'My job tracker', 'briefcase', 'navy'], ['wallet', 'Licenses', 'shield', 'mint'], ['log', 'Hours & miles', 'clock', 'sun'], ['resume', 'Resume', 'book', 'lav'], ['upgrade', 'Pro & shop', 'coins', 'rose'], ['profile', 'Profile', 'people', 'sky'], ['howVideo', 'How it works', 'bulb', 'sun']];
   VIEWS.more = function () {
     var list = MORE.slice(); if (S.me.role === 'admin') list.push(['admin', 'Admin', 'law', 'navy']);
-    return '<h1>Everything</h1><div class="tiles">' + list.map(function (m) { return '<button type="button" class="tile ' + m[3] + '" data-tab="' + m[0] + '"><span class="tile-art">' + ART[m[2]] + '</span><span class="tile-title">' + h(m[1]) + '</span></button>'; }).join('') + '</div>';
+    return '<h1>Everything</h1><div class="tiles">' + list.map(function (m) { return '<button type="button" class="tile ' + m[3] + '" ' + (m[0] === 'howVideo' ? 'data-act="howVideo"' : 'data-tab="' + m[0] + '"') + '><span class="tile-art">' + ART[m[2]] + '</span><span class="tile-title">' + h(m[1]) + '</span></button>'; }).join('') + '</div>';
   };
   function quickTiles() {
     var q = [['learn', 'Learn', 'bulb', 'sun'], ['wisdom', 'Wisdom', 'mountain', 'lav'], ['jobs', 'Jobs', 'briefcase', 'navy'], ['unions', 'Unions', 'handshake', 'sand'], ['wallet', 'Licenses', 'shield', 'mint'], ['ask', 'Ask', 'chat', 'sky']];
@@ -237,7 +238,7 @@
     var yr = new Date().getFullYear() + '';
     var hrs = items('log').filter(function (l) { return l.type === 'Hours' && (l.date || '').indexOf(yr) === 0; }).reduce(function (s, l) { return s + (Number(l.hours) || 0); }, 0);
     return '<h1>' + (first ? 'Welcome back, ' + h(first) : 'Welcome') + '</h1>' +
-      tickerHtml() + quickTiles() + wisdomToday() +
+      tickerHtml() + quickTiles() + (store('connect_seen_video') ? '' : (window.ConnectWatchButton ? ConnectWatchButton() : '')) + wisdomToday() +
       (newUp.length ? '<div class="notice"><b>' + newUp.length + ' rule change' + (newUp.length > 1 ? 's' : '') + ' for your field.</b> <button class="link" data-act="openUpdates">Read them</button></div>' : '') +
       '<div class="grid2">' +
       '<div class="stat"><b>' + items('track').filter(function (t) { return t.status === 'Applied' || t.status === 'Interviewing'; }).length + '</b>open applications</div>' +
@@ -982,6 +983,7 @@
         return api('deleteItem', { id: id }).then(function () { dropLocal(); toast('Deleted.'); }).catch(function (er) { if (isOffline(er)) { enqueue({ op: 'delete', id: id }); dropLocal(); return toast('Deleted on this phone. It syncs when you\'re back online.'); } fail(er); });
       }
       case 'syncNow': return flush();
+      case 'howVideo': store('connect_seen_video', '1'); if (window.ConnectHowItWorks) ConnectHowItWorks(); return;
       case 'trackFilter': S.trackFilter = el.getAttribute('data-f'); return render();
       case 'trackStage': { var ns = el.getAttribute('data-s'), patch = { status: ns }; var tt = items('track').filter(function (x) { return x.id === id; })[0]; if (ns === 'Applied' && tt && !tt.dateApplied) { patch.dateApplied = today(); if (!tt.followUp) { var fu = new Date(); fu.setDate(fu.getDate() + 7); patch.followUp = fu.toISOString().slice(0, 10); } } return trackUpdate(id, patch, 'Status: ' + ns); }
       case 'trackLogOpen': S.logFor = id; render(); var tl = document.getElementById('tlText'); if (tl) tl.focus(); return;
