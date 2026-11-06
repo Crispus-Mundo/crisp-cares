@@ -3,9 +3,10 @@
   'use strict';
   var API = window.CONNECT_API;
   var LEARN = window.LEARN || {}, DIAGRAMS = window.DIAGRAMS || [];
-  var TRACK_STATUS = ['Saved', 'Applied', 'Interviewing', 'Offer received', 'Offer accepted', 'Not selected', 'Withdrew'];
+  var TRACK_STATUS = ['Saved', 'Researching', 'Applied', 'Interviewing', 'Offer received', 'Offer accepted', 'Not selected', 'Not pursuing', 'Withdrew'];
+  var TRACK_DONE = ['Offer accepted', 'Not selected', 'Not pursuing', 'Withdrew'];
   var LOG_TYPES = ['Hours', 'Mileage', 'Expense'];
-  var S = { token: null, me: null, jobs: [], items: [], updates: [], unions: [], wisdom: [], resources: [], chat: [], aiOn: false, plans: [], products: [], orders: [], specialties: [], premium: null, admin: null, tab: 'home', edit: null, quiz: null, learnField: null, files: {} };
+  var S = { token: null, me: null, jobs: [], items: [], updates: [], unions: [], wisdom: [], resources: [], chat: [], aiOn: false, plans: [], products: [], orders: [], specialties: [], premium: null, admin: null, tab: 'home', edit: null, quiz: null, learnField: null, files: {}, outbox: [], offline: false, syncing: false, localFiles: {} };
   var app = document.getElementById('app');
   var Q = new URLSearchParams(location.search);
   var JOIN = Q.get('join') === '1', JOIN_SRC = (Q.get('src') || 'qr').replace(/[^a-z0-9_-]/gi, '').slice(0, 30);
@@ -22,12 +23,35 @@
   function field(id) { var el = document.getElementById(id); return el ? (el.type === 'checkbox' ? el.checked : el.value.trim()) : ''; }
   function shuffle(a) { a = a.slice(); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
 
+  /* ---------------- offline store (IndexedDB, falls back to localStorage) */
+  var KV = (function () {
+    var dbp = null;
+    function db() {
+      if (dbp) return dbp;
+      dbp = new Promise(function (res, rej) {
+        try { var r = indexedDB.open('connect', 1); r.onupgradeneeded = function () { r.result.createObjectStore('kv'); }; r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; } catch (e) { rej(e); }
+      });
+      return dbp;
+    }
+    function tx(mode, fn) { return db().then(function (d) { return new Promise(function (res, rej) { var t = d.transaction('kv', mode), st = t.objectStore('kv'), out = fn(st); t.oncomplete = function () { res(out && out.result); }; t.onerror = function () { rej(t.error); }; }); }); }
+    return {
+      get: function (k) { return tx('readonly', function (st) { return st.get(k); }).catch(function () { var v = store('kv_' + k); try { return v ? JSON.parse(v) : undefined; } catch (e) { return undefined; } }); },
+      set: function (k, v) { return tx('readwrite', function (st) { st.put(v, k); }).catch(function () { try { store('kv_' + k, JSON.stringify(v)); } catch (e) {} }); },
+      del: function (k) { return tx('readwrite', function (st) { st.delete(k); }).catch(function () { store('kv_' + k, null); }); }
+    };
+  })();
+  function who() { return (S.me && S.me.email) || store('connect_email') || 'me'; }
+  function isOffline(e) { return e && e.offline; }
+  function offErr(msg) { var e = new Error(msg || 'You\'re offline. This part needs internet. Everything else still works and saves on your phone.'); e.offline = true; return e; }
+  var ONLINE_ONLY = { requestCode: 'You need internet to get a sign-in code.', verifyCode: 'You need internet to sign in the first time on this phone.' };
+
   function api(action, data) {
     if (!API || API.indexOf('__') === 0) return Promise.reject(new Error('Connect is being set up. Please try again soon.'));
+    if (navigator.onLine === false) return Promise.reject(offErr(ONLINE_ONLY[action]));
     var body = Object.assign({ action: action, token: S.token }, data || {});
     return fetch(API, { method: 'POST', body: JSON.stringify(body) })
       .then(function (r) { return r.json(); })
-      .catch(function () { throw new Error('Could not reach Connect. Check your connection and try again.'); })
+      .catch(function () { throw offErr(ONLINE_ONLY[action] || 'Could not reach Connect. You may be offline. Your changes are kept on this phone.'); })
       .then(function (j) {
         if (!j.ok) {
           if (/sign in/i.test(j.error || '') && action !== 'verifyCode') { signOutLocal(); }
@@ -73,17 +97,99 @@
   }
   function signOutLocal() { S.token = null; store('connect_token', null); S.premium = null; S.admin = null; }
 
-  function load() {
-    app.innerHTML = '<p class="muted">Loading your Connect…</p>';
-    return api('me').then(function (j) {
+  function applyLoad(j) {
       S.me = j.me; S.jobs = j.jobs || []; S.items = j.items || []; S.updates = j.updates || []; S.unions = j.unions || []; S.wisdom = j.wisdom || []; S.resources = j.resources || []; S.aiOn = !!j.aiOn; S.plans = j.plans || []; S.products = j.products || []; S.orders = j.orders || []; S.specialties = j.specialties || [];
-      if (S.me.premium) api('premium').then(function (p) { S.premium = p.premium; if (S.tab === 'learn') render(); }).catch(function () {});
       var hash = (location.hash || '').replace('#', '');
       if (!S.me.name || !S.me.specialty) S.tab = 'profile';
       else if (TABS().some(function (t) { return t[0] === hash; })) S.tab = hash;
-      render();
-    }).catch(function (e) { if (!S.token) signInView('email', store('connect_email') || '', e.message); else app.innerHTML = '<div class="notice err">' + h(e.message) + '</div><button class="primary" data-act="reload">Try again</button>'; });
   }
+  function cacheNow() {
+    if (!S.me) return Promise.resolve();
+    return KV.set('cache:' + S.me.email, { me: S.me, jobs: S.jobs, items: S.items, updates: S.updates, unions: S.unions, wisdom: S.wisdom, resources: S.resources, aiOn: S.aiOn, plans: S.plans, products: S.products, orders: S.orders, specialties: S.specialties, savedAt: new Date().toISOString() });
+  }
+  function saveOutbox() { return KV.set('outbox:' + who(), S.outbox); }
+  function load() {
+    app.innerHTML = '<p class="muted">Loading your Connect…</p>';
+    var email = store('connect_email') || '';
+    return KV.get('outbox:' + (email || 'me')).then(function (ob) { S.outbox = Array.isArray(ob) ? ob : []; })
+      .then(function () { return api('me'); })
+      .then(function (j) {
+        S.offline = false; applyLoad(j);
+        if (S.outbox.length) applyPendingLocally();
+        render(); cacheNow();
+        if (S.me.premium) api('premium').then(function (p) { S.premium = p.premium; KV.set('premium:' + S.me.email, p.premium); if (S.tab === 'learn') render(); }).catch(function () { KV.get('premium:' + S.me.email).then(function (pp) { if (pp) { S.premium = pp; if (S.tab === 'learn') render(); } }); });
+        flush();
+      })
+      .catch(function (e) {
+        if (isOffline(e) && S.token) {
+          return KV.get('cache:' + email).then(function (c) {
+            if (!c) { app.innerHTML = '<div class="notice err">You\'re offline, and this phone hasn\'t saved your Connect yet. Open it once with internet and it will work offline after that.</div><button class="primary" data-act="reload">Try again</button>'; return; }
+            S.offline = true; applyLoad(c); applyPendingLocally();
+            KV.get('premium:' + email).then(function (pp) { if (pp) S.premium = pp; render(); });
+          });
+        }
+        if (!S.token) signInView('email', email, e.message); else app.innerHTML = '<div class="notice err">' + h(e.message) + '</div><button class="primary" data-act="reload">Try again</button>';
+      });
+  }
+
+  /* ---------------- offline queue: changes save on the phone first, then sync */
+  function newId() { return 'tmp-' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36); }
+  function upsertLocal(kind, item) {
+    var it = Object.assign({}, item, { kind: kind, updated: new Date().toISOString(), _pending: true });
+    var i = S.items.findIndex(function (x) { return x.id === it.id; });
+    if (i > -1) { if (S.items[i].files && !it.files) it.files = S.items[i].files; S.items[i] = it; } else S.items.push(it);
+    return it;
+  }
+  function enqueue(op) {
+    op.opId = op.opId || newId();
+    if (op.op === 'save' && op.item.id) {   // fold repeat edits of the same entry into one change
+      for (var k = S.outbox.length - 1; k >= 0; k--) { var o = S.outbox[k]; if (o.op === 'save' && o.item.id === op.item.id) { o.item = op.item; saveOutbox(); return; } if (o.op === 'upload' || o.op === 'delete') break; }
+    }
+    if (op.op === 'profile') { var pf = S.outbox.filter(function (o) { return o.op === 'profile'; })[0]; if (pf) { Object.assign(pf.profile, op.profile); saveOutbox(); return; } }
+    S.outbox.push(op); saveOutbox();
+  }
+  function applyPendingLocally() {
+    S.outbox.forEach(function (o) {
+      if (o.op === 'save') upsertLocal(o.kind, o.item);
+      else if (o.op === 'delete') S.items = S.items.filter(function (x) { return x.id !== o.id; });
+      else if (o.op === 'profile' && S.me) { var r = o.profile; Object.keys(r).forEach(function (k) { S.me[k] = r[k]; }); }
+      else if (o.op === 'upload') { var it = S.items.filter(function (x) { return x.id === o.upload.itemId; })[0]; if (it) { it.files = it.files || {}; it.files[o.upload.side] = { id: 'local:' + o.opId, mime: o.upload.mime, name: o.upload.name, local: true }; } S.localFiles['local:' + o.opId] = 'data:' + o.upload.mime + ';base64,' + o.upload.data; }
+    });
+  }
+  function flush() {
+    if (S.syncing || !S.outbox.length || !S.token || navigator.onLine === false) return Promise.resolve();
+    S.syncing = true; renderStatus();
+    var batch = S.outbox.slice(0, 50), sent = {};
+    batch.forEach(function (o) { sent[o.opId] = 1; });
+    return api('sync', { ops: batch }).then(function (r) {
+      S.offline = false;
+      var bad = r.results.filter(function (x) { return !x.ok; });
+      S.outbox = S.outbox.filter(function (o) { return !sent[o.opId]; });
+      // later changes may point at entries that just got real ids
+      S.outbox.forEach(function (o) {
+        if (o.item && r.ids[o.item.id]) o.item.id = r.ids[o.item.id];
+        if (o.op === 'delete' && r.ids[o.id]) o.id = r.ids[o.id];
+        if (o.op === 'upload' && r.ids[o.upload.itemId]) o.upload.itemId = r.ids[o.upload.itemId];
+      });
+      if (S.edit && S.edit.item && r.ids[S.edit.item.id]) S.edit.item.id = r.ids[S.edit.item.id];
+      S.items = r.items; if (r.me) S.me = r.me;
+      applyPendingLocally(); saveOutbox(); cacheNow();
+      S.syncing = false;
+      if (!S.edit) render(); else renderStatus();
+      if (bad.length) toast(bad.length + ' change(s) could not be saved: ' + bad[0].error);
+      else toast('Synced. Your changes are saved to your account.');
+      if (S.outbox.length) return flush();
+    }).catch(function (e) { S.syncing = false; if (isOffline(e)) S.offline = true; renderStatus(); });
+  }
+  function renderStatus() {
+    var el = document.getElementById('netStatus'); if (!el) return;
+    var n = S.outbox.length;
+    el.innerHTML = S.syncing ? '<span class="pill net">Syncing…</span>' : (S.offline || navigator.onLine === false) ? '<span class="pill net off">Offline' + (n ? ' · ' + n + ' to sync' : '') + '</span>' : n ? '<button class="pill net" data-act="syncNow">' + n + ' to sync</button>' : '';
+  }
+  window.addEventListener('online', function () { S.offline = false; renderStatus(); flush(); });
+  window.addEventListener('offline', function () { S.offline = true; renderStatus(); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) flush(); });
+  setInterval(function () { if (S.outbox.length) flush(); }, 60000);
 
   /* ---------------- shell */
   function TABS() {
@@ -99,11 +205,12 @@
     bn.innerHTML = MAIN.map(function (m) { var on = S.tab === m[0] || (m[0] === 'more' && !inMain); return '<button type="button" data-tab="' + m[0] + '"' + (on ? ' aria-current="page"' : '') + '><span class="bn-icon">' + ART[m[2]] + '</span><span>' + m[1] + '</span></button>'; }).join('');
     document.body.classList.toggle('feed-mode', S.tab === 'wisdom');
     document.getElementById('tabList').innerHTML = TABS().map(function (t) { return '<button type="button" data-tab="' + t[0] + '"' + (S.tab === t[0] ? ' aria-current="page"' : '') + '>' + h(t[1]) + '</button>'; }).join('');
-    document.getElementById('topRight').innerHTML = S.me.premium ? '<span class="pill pro">Pro</span>' : '<button class="link" style="color:var(--gold)" data-tab="upgrade">Go Pro</button>';
+    document.getElementById('topRight').innerHTML = '<span id="netStatus"></span>' + (S.me.premium ? '<span class="pill pro">Pro</span>' : '<button class="link" style="color:var(--gold)" data-tab="upgrade">Go Pro</button>');
     var fn = VIEWS[S.tab] || VIEWS.home;
     app.innerHTML = fn();
     var cur = document.querySelector('nav.tabs [aria-current]'); if (cur && cur.scrollIntoView) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
-    if (S.tab === 'wallet') loadThumbs();
+    renderStatus();
+    if (S.tab === 'wallet' || S.tab === 'tracker') loadThumbs();
     if (S.tab === 'learn') afterLearnRender();
     if (S.tab === 'admin' && !S.admin) loadAdmin();
   }
@@ -124,7 +231,7 @@
   VIEWS.home = function () {
     var me = S.me, first = (me.name || '').split(' ')[0];
     var certs = items('cert').filter(function (c) { var d = daysUntil(c.expires); return d !== null && d <= 90; }).sort(function (a, b) { return a.expires < b.expires ? -1 : 1; });
-    var fol = items('track').filter(function (t) { return t.followUp && t.followUp <= today() && ['Offer accepted', 'Not selected', 'Withdrew'].indexOf(t.status) < 0; });
+    var fol = items('track').filter(function (t) { return t.followUp && t.followUp <= today() && TRACK_DONE.indexOf(t.status) < 0; });
     var seen = Number(store('connect_updates_seen') || 0);
     var newUp = S.updates.filter(function (u) { return new Date(u.created).getTime() > seen && fieldMatches(u.field); });
     var yr = new Date().getFullYear() + '';
@@ -166,8 +273,12 @@
   function jobCard(j) {
     var saved = items('track').some(function (t) { return t.jobId === j.id; });
     var st = j.status !== 'approved' ? ' <span class="tag ' + (j.status === 'pending' ? 'warn' : 'bad') + '">' + h(j.status) + '</span>' : '';
-    return '<div class="card"><div class="spread"><div><h3>' + h(j.title) + st + '</h3><div class="muted small">' + [j.company, j.location, j.type, j.pay].filter(Boolean).map(h).join(' · ') + '</div></div><span class="tag">' + h(j.category) + '</span></div>' +
+    return '<div class="card job-card"><div class="spread"><div><h3>' + h(j.title) + st + '</h3><div class="muted small">' + [j.company, j.location, j.type, j.pay].filter(Boolean).map(h).join(' · ') + '</div></div><span class="tag">' + h(j.category) + '</span></div>' +
       (j.description ? '<p style="margin-top:8px;white-space:pre-line">' + h(j.description) + '</p>' : '') +
+      (j.requirements ? '<p class="small" style="margin:6px 0 0"><b>What they want:</b> ' + h(j.requirements) + '</p>' : '') +
+      (j.benefits ? '<p class="small" style="margin:6px 0 0"><b>Perks:</b> ' + h(j.benefits) + '</p>' : '') +
+      (j.itin ? '<details class="small itin"><summary>Work papers &amp; ITIN</summary><p style="margin:6px 0 0">' + h(j.itin) + ' <button class="link" data-act="itinInfo">More about ITINs</button></p></details>' : '') +
+      (j.source ? '<p class="small muted" style="margin:6px 0 0">' + h(j.source) + (j.checked ? ' · checked ' + h(fmtDate(j.checked)) : '') + '</p>' : '') +
       '<div class="row">' + (j.status === 'approved' ? (saved ? '<span class="tag ok">In your tracker</span>' : '<button class="primary" data-act="saveJob" data-id="' + h(j.id) + '">Save to my tracker</button>') : '') +
       (j.url ? '<a class="btn ghost" href="' + h(j.url) + '" target="_blank" rel="noopener">Apply / details</a>' : '') +
       (j.contact ? '<span class="small muted">Contact: ' + h(j.contact) + '</span>' : '') +
@@ -175,57 +286,132 @@
       ((S.me.role === 'admin' || j.mine) && j.status === 'approved' ? '<button class="link" data-act="closeJob" data-id="' + h(j.id) + '">Close post</button>' : '') +
       '</div></div>';
   }
+  function myFields() { return [S.me.specialty].concat(S.me.fields || []).filter(Boolean); }
   VIEWS.jobs = function () {
     var f = S.jobFilter || (S.me.role === 'admin' || S.me.role === 'partner' ? 'all' : 'mine');
-    var list = S.jobs.filter(function (j) { return f === 'all' || j.status !== 'approved' || !S.me.specialty || j.category === S.me.specialty || j.category === 'Other'; });
+    var mine = myFields();
+    var list = S.jobs.filter(function (j) {
+      if (j.status !== 'approved') return true;
+      if (f === 'all') return true;
+      if (f === 'mine') return !mine.length || mine.indexOf(j.category) > -1 || j.category === 'Other';
+      return j.category === f;
+    });
+    var cats = S.jobs.filter(function (j) { return j.status === 'approved'; }).map(function (j) { return j.category; }).filter(function (c, i, a) { return c && a.indexOf(c) === i; });
     var canPost = S.me.role === 'admin' || (S.me.role === 'partner' && S.me.partnerStatus === 'approved');
-    return '<h1>Job board</h1><p class="muted">Jobs from Crisp Cares, Crisp Clean, CMCC and approved partners. Save one to track your application.</p>' +
-      '<div class="row" style="margin-bottom:12px"><button class="' + (f === 'mine' ? 'primary' : 'ghost') + '" data-act="jobFilter" data-f="mine">My field</button><button class="' + (f === 'all' ? 'primary' : 'ghost') + '" data-act="jobFilter" data-f="all">All jobs</button>' +
-      (canPost ? '<button class="gold" data-act="newJob">Post a job</button>' : '') + '</div>' +
+    return '<h1>Job board</h1><p class="muted">Openings found and checked by Lamira Clean in Southfield, plus posts from approved partners. Save one to track your application.</p>' +
+      '<div class="chips" style="margin-bottom:10px"><button class="chip' + (f === 'mine' ? ' on' : '') + '" data-act="jobFilter" data-f="mine">My fields</button><button class="chip' + (f === 'all' ? ' on' : '') + '" data-act="jobFilter" data-f="all">All jobs</button>' +
+      cats.map(function (c) { return '<button class="chip' + (f === c ? ' on' : '') + '" data-act="jobFilter" data-f="' + h(c) + '">' + h(c) + '</button>'; }).join('') + '</div>' +
+      '<p class="small muted" style="margin:0 0 10px">Want jobs in other fields too? <button class="link" data-tab="profile">Pick more fields in Profile</button>.</p>' +
+      itinCard() +
+      (canPost ? '<div class="row" style="margin-bottom:12px"><button class="gold" data-act="newJob">Post a job</button></div>' : '') +
       (S.edit === 'newJob' ? jobForm() : '') +
       (list.map(jobCard).join('') || '<p class="muted">No jobs here yet. Turn on alerts in Profile and we\'ll email you when one is posted.</p>') +
       (!canPost ? '<p class="small muted">Hiring? Partners can post jobs here. Ask for partner access under <button class="link" data-tab="profile">Profile</button>.</p>' : '');
   };
+  function itinCard() {
+    return '<details class="card itin-card" id="itinCard"' + (S.itinOpen ? ' open' : '') + '><summary><b>Have an ITIN instead of a Social Security number?</b></summary>' +
+      '<ul style="margin:8px 0 0 18px;padding:0" class="small">' +
+      '<li>An ITIN (Individual Taxpayer Identification Number) is a tax number from the IRS. You use it to file taxes. It does not give permission to work.</li>' +
+      '<li>For W-2 jobs, every employer has you fill out Form I-9 and show papers that prove you can work in the U.S., like a Social Security card with a photo ID, a green card, or a work permit (EAD). An ITIN by itself does not meet that.</li>' +
+      '<li>Every job on this board is marked so you can see what it asks for before you apply. Tap "Work papers &amp; ITIN" on a job.</li>' +
+      '<li>If you have a work permit, use the Social Security number that comes with it. If you are waiting on one, keep studying and earning your EPA 608. It travels with you.</li>' +
+      '<li>Lamira Clean can help you apply for or renew an ITIN (Form W-7) and file your taxes. <button class="link" data-tab="upgrade">See tax help</button></li>' +
+      '</ul><p class="small muted" style="margin:8px 0 0">General information, not legal advice. Rules on who can work are set by U.S. immigration law (8 U.S.C. 1324a) and the I-9 form instructions.</p></details>';
+  }
   function specOptions(sel, extra) { return (extra || []).concat(S.specialties).map(function (s) { return '<option' + (s === sel ? ' selected' : '') + '>' + h(s) + '</option>'; }).join(''); }
   function jobForm() {
-    return '<form class="card" data-form="postJob"><h3>Post a job</h3>' + (S.me.role !== 'admin' ? '<p class="small muted">Partner posts show after Crisp Cares approves them.</p>' : '<p class="small muted">Posting emails everyone in that field who has alerts on.</p>') +
+    return '<form class="card" data-form="postJob"><h3>Post a job</h3>' + (S.me.role !== 'admin' ? '<p class="small muted">Partner posts show after they are reviewed.</p>' : '<p class="small muted">Posting emails everyone in that field who has alerts on.</p>') +
       '<div class="form-grid"><div class="full"><label for="jTitle">Job title</label><input id="jTitle" required></div>' +
       '<div><label for="jCompany">Company</label><input id="jCompany" value="' + h(S.me.company || '') + '"></div><div><label for="jCat">Field</label><select id="jCat">' + specOptions(S.me.specialty) + '</select></div>' +
       '<div><label for="jPay">Pay</label><input id="jPay" placeholder="$25–30/hr"></div><div><label for="jType">Type</label><input id="jType" placeholder="Full time, part time, per call"></div>' +
       '<div><label for="jLoc">Location</label><input id="jLoc" placeholder="Southfield, MI"></div><div><label for="jContact">How to apply / contact</label><input id="jContact"></div>' +
       '<div class="full"><label for="jUrl">Link (optional)</label><input id="jUrl" type="url" placeholder="https://"></div>' +
-      '<div class="full"><label for="jDesc">Description</label><textarea id="jDesc"></textarea></div></div>' +
+      '<div class="full"><label for="jDesc">Description</label><textarea id="jDesc"></textarea></div>' +
+      '<div class="full"><label for="jReq">What they want (licenses, experience)</label><textarea id="jReq" style="min-height:60px"></textarea></div>' +
+      '<div class="full"><label for="jBen">Perks (pay schedule, van, training, bonus)</label><input id="jBen"></div>' +
+      '<div class="full"><label for="jItin">Work papers / ITIN</label><input id="jItin" value="W-2 job: you will fill out Form I-9 and show work authorization. An ITIN by itself is a tax number, not work permission."></div>' +
+      (S.me.role === 'admin' ? '<div class="full"><label class="check"><input type="checkbox" id="jQuiet"> Post quietly (don\'t email members)</label></div>' : '') + '</div>' +
       '<div class="row" style="margin-top:12px"><button class="primary" type="submit">Post</button><button class="ghost" type="button" data-act="cancelEdit">Cancel</button></div></form>';
   }
 
   /* tracker */
+  var STAGE_NEXT = { Saved: 'Applied', Researching: 'Applied', Applied: 'Interviewing', Interviewing: 'Offer received', 'Offer received': 'Offer accepted' };
+  function stageTag(st) { st = st || 'Saved'; var c = st === 'Offer accepted' ? 'ok' : st === 'Offer received' || st === 'Interviewing' ? 'warn' : TRACK_DONE.indexOf(st) > -1 ? 'bad' : 'navy'; return '<span class="tag ' + c + '">' + h(st) + '</span>'; }
+  function trackLog(t) { var l = Array.isArray(t.log) ? t.log.slice() : []; return l.sort(function (a, b) { return a.d < b.d ? 1 : -1; }); }
   VIEWS.tracker = function () {
-    var list = items('track').sort(function (a, b) { return (b.updated || '') > (a.updated || '') ? 1 : -1; });
-    var counts = TRACK_STATUS.map(function (s) { return [s, list.filter(function (t) { return t.status === s; }).length]; }).filter(function (c) { return c[1]; });
-    return '<h1>My job tracker</h1><p class="muted">Only you can see this.</p>' +
-      (counts.length ? '<div class="row" style="margin-bottom:10px">' + counts.map(function (c) { return '<span class="tag navy">' + h(c[0]) + ': ' + c[1] + '</span>'; }).join('') + '</div>' : '') +
-      '<button class="primary" data-act="editTrack">Add a job I applied to</button>' +
+    var all = items('track').sort(function (a, b) { return (b.updated || '') > (a.updated || '') ? 1 : -1; });
+    var tf = S.trackFilter || 'active';
+    var list = all.filter(function (t) { var st = t.status || 'Saved'; return tf === 'all' || (tf === 'active' ? TRACK_DONE.indexOf(st) < 0 : tf === 'done' ? TRACK_DONE.indexOf(st) > -1 : st === tf); });
+    var counts = TRACK_STATUS.map(function (s) { return [s, all.filter(function (t) { return (t.status || 'Saved') === s; }).length]; }).filter(function (c) { return c[1]; });
+    var due = all.filter(function (t) { return t.followUp && t.followUp <= today() && TRACK_DONE.indexOf(t.status) < 0; }).length;
+    var active = all.filter(function (t) { return TRACK_DONE.indexOf(t.status || 'Saved') < 0; }).length;
+    return '<h1>My job tracker</h1><p class="muted">Only you can see this. It works without internet and syncs when you\'re back online.</p>' +
+      '<div class="grid2"><div class="stat"><b>' + active + '</b>active</div><div class="stat"><b>' + all.filter(function (t) { return t.status === 'Applied'; }).length + '</b>applied</div><div class="stat"><b>' + all.filter(function (t) { return t.status === 'Interviewing'; }).length + '</b>interviewing</div><div class="stat"><b>' + due + '</b>follow-ups due</div></div>' +
+      '<div class="chips" style="margin:10px 0"><button class="chip' + (tf === 'active' ? ' on' : '') + '" data-act="trackFilter" data-f="active">Active</button><button class="chip' + (tf === 'all' ? ' on' : '') + '" data-act="trackFilter" data-f="all">All (' + all.length + ')</button>' +
+      counts.map(function (c) { return '<button class="chip' + (tf === c[0] ? ' on' : '') + '" data-act="trackFilter" data-f="' + h(c[0]) + '">' + h(c[0]) + ' ' + c[1] + '</button>'; }).join('') +
+      '<button class="chip' + (tf === 'done' ? ' on' : '') + '" data-act="trackFilter" data-f="done">Closed</button></div>' +
+      '<div class="row"><button class="primary" data-act="editTrack">Add a job I applied to</button><button class="ghost" data-tab="jobs">Find jobs</button>' + (all.length ? '<button class="ghost" data-act="exportTrack">Download (CSV)</button>' : '') + '</div>' +
       (S.edit && S.edit.kind === 'track' ? trackForm(S.edit.item) : '') +
-      '<div style="margin-top:12px">' + (list.map(function (t) {
-        return '<div class="card"><div class="spread"><div><h3>' + h(t.title) + '</h3><div class="muted small">' + [t.company, t.location, t.pay].filter(Boolean).map(h).join(' · ') + '</div></div><span class="tag">' + h(t.status || 'Saved') + '</span></div>' +
-          '<div class="small muted" style="margin-top:6px">' + [t.dateApplied ? 'Applied ' + fmtDate(t.dateApplied) : '', t.appNumber ? 'App # ' + t.appNumber : '', t.followUp ? 'Follow up ' + fmtDate(t.followUp) : '', t.resumeUsed ? 'Resume: ' + t.resumeUsed : ''].filter(Boolean).map(h).join(' · ') + '</div>' +
-          (t.notes ? '<p class="small" style="margin-top:6px;white-space:pre-line">' + h(t.notes) + '</p>' : '') +
-          '<div class="row" style="margin-top:8px"><button class="ghost" data-act="editTrack" data-id="' + h(t.id) + '">Edit</button>' + (t.url ? '<a class="btn ghost" href="' + h(t.url) + '" target="_blank" rel="noopener">Posting</a>' : '') + '<button class="link" data-act="delItem" data-id="' + h(t.id) + '">Delete</button></div></div>';
-      }).join('') || '<p class="muted">Nothing tracked yet. Save a job from the board or add one you found elsewhere.</p>') + '</div>';
+      '<div style="margin-top:12px">' + (list.map(trackCard).join('') || '<p class="muted">' + (all.length ? 'Nothing in this view.' : 'Nothing tracked yet. Save a job from the board or add one you found elsewhere.') + '</p>') + '</div>';
   };
+  function trackCard(t) {
+    var st = t.status || 'Saved', nxt = STAGE_NEXT[st], f = t.files || {}, log = trackLog(t);
+    var fd = t.followUp ? daysUntil(t.followUp) : null;
+    return '<div class="card track-card"><div class="spread"><div><h3>' + h(t.title) + (t._pending ? ' <span class="tag">not synced</span>' : '') + '</h3><div class="muted small">' + [t.company, t.location, t.pay, t.type].filter(Boolean).map(h).join(' · ') + '</div></div>' + stageTag(st) + '</div>' +
+      '<div class="kv small">' +
+      (t.dateApplied ? '<div><span>Applied</span>' + h(fmtDate(t.dateApplied)) + '</div>' : '') +
+      (t.appNumber ? '<div><span>App / confirmation #</span>' + h(t.appNumber) + '</div>' : '') +
+      (t.interview ? '<div><span>Interview</span>' + h(fmtDate(t.interview.slice(0, 10))) + (t.interview.length > 10 ? ' ' + h(t.interview.slice(11, 16)) : '') + '</div>' : '') +
+      (t.followUp ? '<div><span>Follow up</span>' + h(fmtDate(t.followUp)) + (fd !== null && fd <= 0 && TRACK_DONE.indexOf(st) < 0 ? ' <b style="color:#B3261E">due</b>' : '') + '</div>' : '') +
+      (t.contact ? '<div><span>Contact</span>' + h(t.contact) + (t.contactInfo ? ' · ' + h(t.contactInfo) : '') + '</div>' : '') +
+      (t.resumeUsed ? '<div><span>Resume used</span>' + h(t.resumeUsed) + '</div>' : '') +
+      (t.nextStep ? '<div><span>Next step</span>' + h(t.nextStep) + '</div>' : '') +
+      (t.source ? '<div><span>Found on</span>' + h(t.source) + '</div>' : '') +
+      '</div>' +
+      (t.notes ? '<p class="small" style="margin-top:6px;white-space:pre-line">' + h(t.notes) + '</p>' : '') +
+      (log.length ? '<div class="tlog small">' + log.slice(0, 3).map(function (e) { return '<div><b>' + h(fmtDate(e.d)) + '</b> ' + h(e.t) + '</div>'; }).join('') + (log.length > 3 ? '<div class="muted">+' + (log.length - 3) + ' earlier</div>' : '') + '</div>' : '') +
+      (S.logFor === t.id ? '<form class="row" data-form="trackLog" style="margin-top:8px"><input id="tlText" placeholder="What happened? (called, emailed, interview set…)" style="flex:1;min-width:200px" required><input type="hidden" id="tlId" value="' + h(t.id) + '"><button class="primary" type="submit">Add</button><button class="ghost" type="button" data-act="cancelLog">Cancel</button></form>' : '') +
+      '<div class="thumbs">' + ['resume', 'cover', 'other'].filter(function (sd) { return f[sd]; }).map(function (sd) { var lbl = sd === 'cover' ? 'cover letter' : sd; return /^local:/.test(f[sd].id) ? '<span class="small muted">' + lbl + ' (uploads when online)</span>' : '<button class="link" data-act="viewDoc" data-id="' + h(f[sd].id) + '">Open ' + lbl + '</button>'; }).join(' ') + '</div>' +
+      '<div class="row" style="margin-top:8px">' +
+      (nxt ? '<button class="primary" data-act="trackStage" data-id="' + h(t.id) + '" data-s="' + h(nxt) + '">Mark ' + h(nxt) + '</button>' : '') +
+      '<button class="ghost" data-act="trackLogOpen" data-id="' + h(t.id) + '">Log an update</button>' +
+      (t.followUp && TRACK_DONE.indexOf(st) < 0 ? '<button class="ghost" data-act="trackFollowed" data-id="' + h(t.id) + '">I followed up</button>' : '') +
+      '<button class="ghost" data-act="editTrack" data-id="' + h(t.id) + '">Edit</button>' +
+      (t.url ? '<a class="btn ghost" href="' + h(t.url) + '" target="_blank" rel="noopener">Posting</a>' : '') +
+      (t.confirmUrl ? '<a class="btn ghost" href="' + h(t.confirmUrl) + '" target="_blank" rel="noopener">Confirmation</a>' : '') +
+      ['resume', 'cover'].map(function (sd) { return '<label class="btn ghost" style="margin:0;font-size:14px">' + (f[sd] ? 'Replace ' : 'Attach ') + (sd === 'cover' ? 'cover letter' : 'resume') + '<input type="file" hidden accept="application/pdf,image/*" data-upload="' + h(t.id) + '" data-side="' + sd + '"></label>'; }).join('') +
+      '<button class="link" data-act="delItem" data-id="' + h(t.id) + '">Delete</button></div></div>';
+  }
   function trackForm(t) {
     t = t || {};
+    var resumes = [S.me.resume && S.me.resume.headline ? 'Connect resume — ' + S.me.resume.headline : 'Connect resume'];
     return '<form class="card" data-form="saveTrack" style="margin-top:12px"><h3>' + (t.id ? 'Edit job' : 'Add a job') + '</h3><div class="form-grid">' +
       '<div class="full"><label for="tTitle">Job title</label><input id="tTitle" required value="' + h(t.title) + '"></div>' +
       '<div><label for="tCompany">Company</label><input id="tCompany" value="' + h(t.company) + '"></div><div><label for="tStatus">Status</label><select id="tStatus">' + TRACK_STATUS.map(function (s) { return '<option' + (s === (t.status || 'Saved') ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div>' +
       '<div><label for="tCat">Field</label><select id="tCat">' + specOptions(t.category || S.me.specialty) + '</select></div><div><label for="tPay">Pay</label><input id="tPay" value="' + h(t.pay) + '"></div>' +
-      '<div><label for="tType">Type</label><input id="tType" value="' + h(t.type) + '"></div><div><label for="tLoc">Location</label><input id="tLoc" value="' + h(t.location) + '"></div>' +
-      '<div><label for="tApplied">Date applied</label><input id="tApplied" type="date" value="' + h(t.dateApplied) + '"></div><div><label for="tApp">Application / confirmation #</label><input id="tApp" value="' + h(t.appNumber) + '"></div>' +
-      '<div><label for="tResume">Resume used</label><input id="tResume" value="' + h(t.resumeUsed) + '"></div><div><label for="tFollow">Follow up on</label><input id="tFollow" type="date" value="' + h(t.followUp) + '"></div>' +
-      '<div class="full"><label for="tUrl">Link</label><input id="tUrl" type="url" value="' + h(t.url) + '"></div>' +
+      '<div><label for="tType">Type</label><input id="tType" value="' + h(t.type) + '" placeholder="Full time, W-2, 1099"></div><div><label for="tLoc">Location</label><input id="tLoc" value="' + h(t.location) + '"></div>' +
+      '<div><label for="tSource">Where you found it</label><input id="tSource" value="' + h(t.source) + '" placeholder="Indeed, a friend, company site"></div><div><label for="tApplied">Date applied</label><input id="tApplied" type="date" value="' + h(t.dateApplied) + '"></div>' +
+      '<div><label for="tApp">Application / confirmation #</label><input id="tApp" value="' + h(t.appNumber) + '"></div><div><label for="tConfirm">Confirmation link</label><input id="tConfirm" type="url" value="' + h(t.confirmUrl) + '" placeholder="https://"></div>' +
+      '<div><label for="tContact">Contact person</label><input id="tContact" value="' + h(t.contact) + '" placeholder="Recruiter or manager"></div><div><label for="tContactInfo">Their phone or email</label><input id="tContactInfo" value="' + h(t.contactInfo) + '"></div>' +
+      '<div><label for="tInterview">Interview</label><input id="tInterview" type="datetime-local" value="' + h(t.interview) + '"></div><div><label for="tFollow">Follow up on</label><input id="tFollow" type="date" value="' + h(t.followUp) + '"></div>' +
+      '<div><label for="tResume">Resume used</label><input id="tResume" list="resumeList" value="' + h(t.resumeUsed) + '"><datalist id="resumeList">' + resumes.map(function (r) { return '<option value="' + h(r) + '">'; }).join('') + '</datalist></div><div><label for="tNext">Next step</label><input id="tNext" value="' + h(t.nextStep) + '" placeholder="Send references, drug test…"></div>' +
+      '<div class="full"><label for="tReq">What they want</label><input id="tReq" value="' + h(t.requirements) + '" placeholder="EPA 608, 2 years, driver license"></div>' +
+      '<div class="full"><label for="tUrl">Link to the posting</label><input id="tUrl" type="url" value="' + h(t.url) + '"></div>' +
       '<div class="full"><label for="tNotes">Notes</label><textarea id="tNotes">' + h(t.notes) + '</textarea></div></div>' +
       '<input type="hidden" id="tId" value="' + h(t.id || '') + '"><input type="hidden" id="tJob" value="' + h(t.jobId || '') + '">' +
-      '<div class="row" style="margin-top:12px"><button class="primary" type="submit">Save</button><button class="ghost" type="button" data-act="cancelEdit">Cancel</button></div><p class="small muted" style="margin-top:8px">We\'ll email you on your follow-up date.</p></form>';
+      '<div class="row" style="margin-top:12px"><button class="primary" type="submit">Save</button><button class="ghost" type="button" data-act="cancelEdit">Cancel</button></div><p class="small muted" style="margin-top:8px">We\'ll email you on your follow-up date. Save first, then attach your resume or cover letter on the card.</p></form>';
+  }
+  function exportTrack() {
+    var cols = [['Title', 'title'], ['Company', 'company'], ['Status', 'status'], ['Field', 'category'], ['Pay', 'pay'], ['Type', 'type'], ['Location', 'location'], ['Found on', 'source'], ['Date applied', 'dateApplied'], ['App / confirmation #', 'appNumber'], ['Confirmation link', 'confirmUrl'], ['Contact', 'contact'], ['Contact info', 'contactInfo'], ['Interview', 'interview'], ['Follow up', 'followUp'], ['Resume used', 'resumeUsed'], ['Next step', 'nextStep'], ['What they want', 'requirements'], ['Posting', 'url'], ['Notes', 'notes']];
+    var rows = [cols.map(function (c) { return c[0]; }).concat(['Updates'])].concat(items('track').map(function (t) { return cols.map(function (c) { return t[c[1]] || (c[1] === 'status' ? 'Saved' : ''); }).concat([trackLog(t).map(function (e) { return e.d + ': ' + e.t; }).join(' | ')]); }));
+    var csv = rows.map(function (r) { return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(','); }).join('\r\n');
+    var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'my-job-tracker-' + today() + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+  }
+  function trackUpdate(id, patch, note) {
+    var t = items('track').filter(function (x) { return x.id === id; })[0]; if (!t) return;
+    var it = Object.assign({}, t, patch); delete it.kind; delete it.updated; delete it._pending; delete it.files;
+    if (note) it.log = (Array.isArray(t.log) ? t.log.slice() : []).concat([{ d: today(), t: note }]);
+    return saveItem('track', it, null);
   }
 
   /* wallet */
@@ -267,10 +453,12 @@
         else el.outerHTML = '<a class="btn ghost" href="' + url + '" target="_blank" rel="noopener">Open ' + h(side) + ' (PDF)</a>';
       };
       if (S.files[id]) return show(S.files[id]);
-      api('getFile', { fileId: id }).then(function (j) {
-        var bin = atob(j.data), arr = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-        S.files[id] = URL.createObjectURL(new Blob([arr], { type: j.mime })); show(S.files[id]);
-      }).catch(function () { el.textContent = 'Could not load ' + side; });
+      if (S.localFiles[id]) return show(S.localFiles[id]);
+      var toUrl = function (j) { var bin = atob(j.data), arr = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); S.files[id] = URL.createObjectURL(new Blob([arr], { type: j.mime })); show(S.files[id]); };
+      KV.get('file:' + id).then(function (c) {
+        if (c) return toUrl(c);
+        return api('getFile', { fileId: id }).then(function (j) { if (j.data.length < 3000000) KV.set('file:' + id, { mime: j.mime, data: j.data }); toUrl(j); });
+      }).catch(function () { el.textContent = S.offline ? side + ' shows when you\'re back online' : 'Could not load ' + side; });
     });
   }
   function readFileForUpload(file) {
@@ -533,7 +721,8 @@
       '<div><label for="pSpec">Your field</label><select id="pSpec" required><option value="">Choose…</option>' + specOptions(me.specialty) + '</select></div>' +
       '<div><label for="pSchool">Date you started school (Year One)</label><input id="pSchool" type="date" value="' + h(me.schoolStart) + '"></div>' +
       '<div><label for="pDigest">Email me an update with jobs, deadlines and a word of wisdom</label><select id="pDigest">' + [['daily', 'Every day'], ['weekly', 'Every week (Mondays)'], ['monthly', 'Every month (the 1st)'], ['off', 'Don\'t email updates']].map(function (o) { return '<option value="' + o[0] + '"' + ((me.digest || 'weekly') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
-      '<div class="full"><label class="check"><input type="checkbox" id="pAlerts"' + (me.alerts ? ' checked' : '') + '> Email me new jobs and rule changes for my field</label></div>' +
+      '<div class="full"><span class="label">Also show me jobs in these fields</span><div class="chips">' + S.specialties.filter(function (sp) { return sp !== me.specialty; }).map(function (sp) { var on = (me.fields || []).indexOf(sp) > -1; return '<label class="chip check-chip"><input type="checkbox" data-xfield value="' + h(sp) + '"' + (on ? ' checked' : '') + '> ' + h(sp) + '</label>'; }).join('') + '</div></div>' +
+      '<div class="full"><label class="check"><input type="checkbox" id="pAlerts"' + (me.alerts ? ' checked' : '') + '> Email me new jobs and rule changes for my fields</label></div>' +
       '<div class="full"><label class="check"><input type="checkbox" id="pShare"' + (me.share ? ' checked' : '') + '> Let Crisp Cares, Crisp Clean and CMCC see my resume and contact me about openings</label><p class="small muted" style="margin:4px 0 0 32px">Off by default. Your tracker, licenses and logs are never shared.</p></div>' +
       '</div><button class="primary" type="submit" style="margin-top:12px">Save</button></form>' +
       (me.role !== 'admin' ? '<div class="card"><h3>Post jobs as a partner</h3>' +
@@ -552,7 +741,7 @@
     var partners = a.members.filter(function (m) { return m.partnerStatus === 'pending'; });
     var reqs = a.orders.filter(function (o) { return o.status === 'requested'; });
     var shared = a.members.filter(function (m) { return m.share; });
-    return '<h1>Admin</h1><div class="row" style="margin-bottom:12px"><button class="gold" data-act="showQR">Show my QR code</button><button class="ghost" data-act="exportContacts">Download contacts (CSV)</button><button class="ghost" data-act="openBroadcast">Send an update to members</button></div>' +
+    return '<h1>Admin</h1><div class="row" style="margin-bottom:12px"><button class="gold" data-act="showQR">Show my QR code</button><button class="ghost" data-act="exportContacts">Download contacts (CSV)</button><button class="ghost" data-act="openBroadcast">Send an update to members</button><button class="ghost" data-act="importJobs">Load HVAC job list</button></div>' +
       (S.edit === 'broadcast' ? '<form class="card" data-form="broadcast"><h3>Send an update</h3><label for="bAud">To</label><select id="bAud"><option value="all">Everyone (' + a.members.length + ')</option>' + S.specialties.map(function (s) { var n = a.members.filter(function (m) { return m.specialty === s; }).length; return n ? '<option value="' + h(s) + '">' + h(s) + ' (' + n + ')</option>' : ''; }).join('') + '</select><label for="bSubj">Subject</label><input id="bSubj" required><label for="bBody">Message</label><textarea id="bBody" required style="min-height:140px"></textarea><p class="small muted">Sends one email per member from crispcleaninc (about ' + a.mailQuotaLeft + ' left today). Replies go to LmiraC@crispcleans.com.</p><div class="row"><button class="primary" type="submit">Send</button><button class="ghost" type="button" data-act="cancelEdit">Cancel</button></div></form>' : '') +
       '<div class="grid2"><div class="stat"><b>' + a.members.length + '</b>members</div><div class="stat"><b>' + a.members.filter(function (m) { return m.alerts; }).length + '</b>with alerts on</div><div class="stat"><b>' + a.pendingJobs.length + '</b>jobs to approve</div><div class="stat"><b>' + a.mailQuotaLeft + '</b>emails left today</div></div>' +
       '<p class="small" style="margin-top:8px"><a href="' + h(a.sheet) + '" target="_blank" rel="noopener">Open the Connect Members DB sheet</a> — edit prices and pay links in the Plans and Products tabs.</p>' +
@@ -595,7 +784,13 @@
     api('ask', { question: q, lang: window.CONNECT_LANG || 'en', history: hist }).then(function (r) {
       S.chat.push({ role: 'assistant', content: r.answer, suggest: r.suggest, resources: r.resources, unions: r.unions, mode: r.mode }); render();
       var b = document.getElementById('chatBox'); if (b) b.scrollIntoView({ block: 'end' });
-    }).catch(function (e) { S.chat.pop(); render(); fail(e); });
+    }).catch(function (e) {
+      if (!isOffline(e)) { S.chat.pop(); render(); return fail(e); }
+      var words = q.toLowerCase().split(/[^a-z0-9]+/).filter(function (w) { return w.length > 2; });
+      var hits = S.resources.filter(function (r) { var t = (r.name + ' ' + r.type + ' ' + r.note).toLowerCase(); return words.some(function (w) { return t.indexOf(w) > -1; }); }).slice(0, 4);
+      S.chat.push({ role: 'assistant', mode: 'offline', resources: hits, content: 'You\'re offline, so I can\'t look that up right now. Ask again when you\'re connected.' + (hits.length ? ' Here are saved numbers that may help:' : ' Your saved help numbers are under Ask & help.') });
+      render();
+    });
   }
   function quoteModal(kind, id) {
     var item = (kind === 'plan' ? S.plans : S.products).filter(function (x) { return x.id === id; })[0]; if (!item) return;
@@ -738,11 +933,26 @@
   /* ---------------- actions */
   function saveItem(kind, item, btn) {
     busy(btn, true, 'Saving…');
+    var local = function () {
+      var it = Object.assign({}, item); if (!it.id) it.id = newId();
+      enqueue({ op: 'save', kind: kind, item: it }); var out = upsertLocal(kind, it);
+      S.offline = navigator.onLine === false || S.offline; cacheNow(); S.edit = null; render();
+      toast('Saved on this phone. It syncs when you\'re back online.'); return out;
+    };
+    if (S.outbox.length || navigator.onLine === false || S.offline) { var o = local(); flush(); return Promise.resolve(o); }
     return api('saveItem', { kind: kind, item: item }).then(function (j) {
       var i = S.items.findIndex(function (x) { return x.id === j.item.id; });
       if (i > -1) S.items[i] = j.item; else S.items.push(j.item);
-      S.edit = null; render(); toast('Saved.'); return j.item;
-    }).catch(function (e) { busy(btn, false); fail(e); });
+      S.edit = null; render(); cacheNow(); toast('Saved.'); return j.item;
+    }).catch(function (e) { if (isOffline(e)) { S.offline = true; return local(); } busy(btn, false); fail(e); });
+  }
+
+  function saveProfileAny(prof, btn, after) {
+    var first = !S.me.specialty;
+    var local = function () { enqueue({ op: 'profile', profile: prof }); Object.keys(prof).forEach(function (k) { S.me[k] = prof[k]; }); cacheNow(); toast('Saved on this phone. It syncs when you\'re back online.'); after(first); };
+    if (S.outbox.length || navigator.onLine === false || S.offline) { local(); return flush(); }
+    return api('saveProfile', { profile: prof }).then(function (r) { S.me = r.me; cacheNow(); toast('Saved.'); after(first); })
+      .catch(function (er) { if (isOffline(er)) { S.offline = true; return local(); } busy(btn, false); fail(er); });
   }
 
   document.addEventListener('click', function (e) {
@@ -757,14 +967,29 @@
       case 'newJob': S.edit = 'newJob'; return render();
       case 'saveJob': {
         var j = S.jobs.filter(function (x) { return x.id === id; })[0]; if (!j) return;
-        return saveItem('track', { jobId: j.id, title: j.title, company: j.company, category: j.category, pay: j.pay, type: j.type, location: j.location, url: j.url, status: 'Saved', notes: j.contact ? 'Contact: ' + j.contact : '' }, el);
+        return saveItem('track', { jobId: j.id, title: j.title, company: j.company, category: j.category, pay: j.pay, type: j.type, location: j.location, url: j.url, status: 'Saved', source: 'Connect job board', requirements: j.requirements || '', contact: j.contact || '', notes: '', log: [{ d: today(), t: 'Saved from the job board' }] }, el);
       }
       case 'reviewJob': busy(el, true); return api('reviewJob', { id: id, decision: el.getAttribute('data-d') }).then(function (r) { S.jobs = r.jobs; S.admin = null; render(); toast('Done.'); }).catch(function (er) { busy(el, false); fail(er); });
       case 'closeJob': if (!confirm('Close this job post?')) return; return api('closeJob', { id: id }).then(function (r) { S.jobs = r.jobs; render(); }).catch(fail);
       case 'editTrack': S.edit = { kind: 'track', item: id ? items('track').filter(function (x) { return x.id === id; })[0] : null }; if (S.tab !== 'tracker') { S.tab = 'tracker'; } return render();
       case 'editCert': S.edit = { kind: 'cert', item: id ? items('cert').filter(function (x) { return x.id === id; })[0] : (el.getAttribute('data-name') ? { name: el.getAttribute('data-name') } : null) }; return render();
       case 'editLog': S.edit = { kind: 'log', item: id ? items('log').filter(function (x) { return x.id === id; })[0] : null }; return render();
-      case 'delItem': if (!confirm('Delete this? This can\'t be undone.')) return; return api('deleteItem', { id: id }).then(function () { S.items = S.items.filter(function (x) { return x.id !== id; }); render(); toast('Deleted.'); }).catch(fail);
+      case 'delItem': {
+        if (!confirm('Delete this? This can\'t be undone.')) return;
+        var dropLocal = function () { S.items = S.items.filter(function (x) { return x.id !== id; }); cacheNow(); render(); };
+        if (/^tmp-/.test(id)) { S.outbox = S.outbox.filter(function (o) { return !((o.item && o.item.id === id) || (o.upload && o.upload.itemId === id)); }); saveOutbox(); dropLocal(); return toast('Deleted.'); }
+        if (S.outbox.length || navigator.onLine === false || S.offline) { enqueue({ op: 'delete', id: id }); dropLocal(); flush(); return toast('Deleted on this phone. It syncs when you\'re back online.'); }
+        return api('deleteItem', { id: id }).then(function () { dropLocal(); toast('Deleted.'); }).catch(function (er) { if (isOffline(er)) { enqueue({ op: 'delete', id: id }); dropLocal(); return toast('Deleted on this phone. It syncs when you\'re back online.'); } fail(er); });
+      }
+      case 'syncNow': return flush();
+      case 'trackFilter': S.trackFilter = el.getAttribute('data-f'); return render();
+      case 'trackStage': { var ns = el.getAttribute('data-s'), patch = { status: ns }; var tt = items('track').filter(function (x) { return x.id === id; })[0]; if (ns === 'Applied' && tt && !tt.dateApplied) { patch.dateApplied = today(); if (!tt.followUp) { var fu = new Date(); fu.setDate(fu.getDate() + 7); patch.followUp = fu.toISOString().slice(0, 10); } } return trackUpdate(id, patch, 'Status: ' + ns); }
+      case 'trackLogOpen': S.logFor = id; render(); var tl = document.getElementById('tlText'); if (tl) tl.focus(); return;
+      case 'cancelLog': S.logFor = null; return render();
+      case 'trackFollowed': { var nx = new Date(); nx.setDate(nx.getDate() + 7); return trackUpdate(id, { followUp: nx.toISOString().slice(0, 10) }, 'Followed up. Next check-in set for one week.'); }
+      case 'exportTrack': return exportTrack();
+      case 'itinInfo': S.itinOpen = true; render(); var ic = document.getElementById('itinCard'); if (ic) ic.scrollIntoView({ block: 'start' }); return;
+      case 'importJobs': busy(el, true, 'Loading…'); return api('importJobs').then(function (r) { S.jobs = r.jobs; cacheNow(); busy(el, false); toast(r.added ? r.added + ' jobs added to the board.' : 'The board already has these jobs.'); }).catch(function (er) { busy(el, false); fail(er); });
       case 'exportLog': return exportLog();
       case 'zoom': { var m = document.createElement('div'); m.className = 'modal'; m.innerHTML = '<div class="sheet"><img src="' + el.src + '" alt="' + h(el.alt) + '" style="width:100%;border-radius:8px"><button class="primary" style="margin-top:10px" data-close>Close</button></div>'; m.addEventListener('click', function (ev) { if (ev.target === m || ev.target.hasAttribute('data-close')) m.remove(); }); document.body.appendChild(m); return; }
       case 'listen': if (!S.learnField) S.learnField = learnFields()[0]; return listen(el.getAttribute('data-what'));
@@ -842,9 +1067,14 @@
     if (el.matches('[data-upload]')) {
       var file = el.files && el.files[0]; if (!file) return;
       var certId = el.getAttribute('data-upload'), side = el.getAttribute('data-side');
-      toast('Uploading ' + side + '…');
-      readFileForUpload(file).then(function (f) { return api('uploadFile', { certId: certId, side: side, mime: f.mime, data: f.data, name: file.name }); })
-        .then(function (j) { var i = S.items.findIndex(function (x) { return x.id === j.item.id; }); S.items[i] = j.item; render(); toast('Saved ' + side + '.'); }).catch(fail);
+      toast('Saving ' + side + '…');
+      readFileForUpload(file).then(function (f) {
+        var up = { itemId: certId, side: side, mime: f.mime, data: f.data, name: file.name };
+        var queue = function () { enqueue({ op: 'upload', upload: up }); applyPendingLocally(); cacheNow(); render(); toast('Saved on this phone. It uploads when you\'re back online.'); flush(); };
+        if (/^tmp-/.test(certId) || S.outbox.length || navigator.onLine === false || S.offline) return queue();
+        return api('uploadFile', up).then(function (j) { var i = S.items.findIndex(function (x) { return x.id === j.item.id; }); S.items[i] = j.item; cacheNow(); render(); toast('Saved ' + side + '.'); })
+          .catch(function (er) { if (isOffline(er)) { S.offline = true; return queue(); } fail(er); });
+      }).catch(fail);
       return;
     }
     var a = el.getAttribute('data-act-change');
@@ -856,7 +1086,13 @@
   document.addEventListener('submit', function (e) {
     var f = e.target.closest('[data-form]'); if (!f) return; e.preventDefault();
     var btn = f.querySelector('button[type=submit]'), kind = f.getAttribute('data-form');
-    if (kind === 'saveTrack') return saveItem('track', { id: field('tId') || undefined, jobId: field('tJob'), title: field('tTitle'), company: field('tCompany'), status: field('tStatus'), category: field('tCat'), pay: field('tPay'), type: field('tType'), location: field('tLoc'), dateApplied: field('tApplied'), appNumber: field('tApp'), resumeUsed: field('tResume'), followUp: field('tFollow'), url: field('tUrl'), notes: field('tNotes') }, btn);
+    if (kind === 'saveTrack') {
+      var tid = field('tId'), old = tid ? (items('track').filter(function (x) { return x.id === tid; })[0] || {}) : {};
+      var tlog = Array.isArray(old.log) ? old.log.slice() : [];
+      if (!tid) tlog.push({ d: today(), t: 'Added to tracker' }); else if (old.status !== field('tStatus')) tlog.push({ d: today(), t: 'Status: ' + field('tStatus') });
+      return saveItem('track', { id: tid || undefined, jobId: field('tJob'), title: field('tTitle'), company: field('tCompany'), status: field('tStatus'), category: field('tCat'), pay: field('tPay'), type: field('tType'), location: field('tLoc'), source: field('tSource'), dateApplied: field('tApplied') || (field('tStatus') === 'Applied' && !old.dateApplied ? today() : old.dateApplied || ''), appNumber: field('tApp'), confirmUrl: field('tConfirm'), contact: field('tContact'), contactInfo: field('tContactInfo'), interview: field('tInterview'), resumeUsed: field('tResume'), followUp: field('tFollow'), nextStep: field('tNext'), requirements: field('tReq'), url: field('tUrl'), notes: field('tNotes'), log: tlog, unionId: old.unionId || undefined }, btn);
+    }
+    if (kind === 'trackLog') { var lid = field('tlId'); S.logFor = null; return trackUpdate(lid, {}, field('tlText')); }
     if (kind === 'saveCert') return saveItem('cert', { id: field('cId') || undefined, name: field('cName'), number: field('cNum'), issuer: field('cIssuer'), issued: field('cIssued'), expires: field('cExp'), notes: field('cNotes') }, btn);
     if (kind === 'saveLog') {
       var t = field('lType'), qty = parseFloat(field('lQty').replace(/[$,]/g, ''));
@@ -867,14 +1103,14 @@
     }
     if (kind === 'postJob') {
       busy(btn, true, 'Posting…');
-      return api('postJob', { job: { title: field('jTitle'), company: field('jCompany'), category: field('jCat'), pay: field('jPay'), type: field('jType'), location: field('jLoc'), contact: field('jContact'), url: field('jUrl'), description: field('jDesc') } })
+      return api('postJob', { job: { title: field('jTitle'), company: field('jCompany'), category: field('jCat'), pay: field('jPay'), type: field('jType'), location: field('jLoc'), contact: field('jContact'), url: field('jUrl'), description: field('jDesc'), requirements: field('jReq'), benefits: field('jBen'), itin: field('jItin'), silent: field('jQuiet') } })
         .then(function (r) { S.jobs = r.jobs; S.edit = null; render(); toast(r.job.status === 'approved' ? 'Posted. Members in that field were emailed.' : 'Sent for approval.'); }).catch(function (er) { busy(btn, false); fail(er); });
     }
     if (kind === 'saveProfile') {
       if (!field('pName') || !field('pSpec')) return toast('Add your name and field.');
       busy(btn, true, 'Saving…');
-      return api('saveProfile', { profile: { name: field('pName'), phone: field('pPhone'), specialty: field('pSpec'), schoolStart: field('pSchool'), digest: field('pDigest'), alerts: field('pAlerts'), share: field('pShare') } })
-        .then(function (r) { var first = !S.me.specialty; S.me = r.me; toast('Saved.'); go(first ? 'home' : 'profile'); }).catch(function (er) { busy(btn, false); fail(er); });
+      var prof = { name: field('pName'), phone: field('pPhone'), specialty: field('pSpec'), schoolStart: field('pSchool'), digest: field('pDigest'), alerts: field('pAlerts'), share: field('pShare'), fields: Array.prototype.map.call(document.querySelectorAll('[data-xfield]:checked'), function (c) { return c.value; }) };
+      return saveProfileAny(prof, btn, function (first) { go(first ? 'home' : 'profile'); });
     }
     if (kind === 'ask') return sendAsk();
     if (kind === 'broadcast') {
@@ -886,7 +1122,7 @@
     if (kind === 'saveResume') {
       var resume = { headline: field('rHead'), city: field('rCity'), email: field('rEmail'), summary: field('rSummary'), exp: collectRows('#expList .exp'), edu: collectRows('#eduList .edu'), skills: field('rSkills'), includeCerts: field('rCerts') };
       busy(btn, true, 'Saving…');
-      return api('saveProfile', { profile: { resume: resume } }).then(function (r) { S.me = r.me; render(); toast('Resume saved.'); }).catch(function (er) { busy(btn, false); fail(er); });
+      return saveProfileAny({ resume: resume }, btn, function () { render(); });
     }
     if (kind === 'postUpdate') {
       busy(btn, true, 'Posting…');

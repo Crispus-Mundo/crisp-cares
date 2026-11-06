@@ -9,7 +9,7 @@
  * Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone).
  */
 
-var APP_VERSION = 'connect-members v1.1 — 2026-11-06';
+var APP_VERSION = 'connect-members v1.2 — 2026-11-06';
 var ADMINS = ['crispcleaninc@gmail.com']; // ccyars26 is a regular member account by choice
 var APP_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/member/';
 var HUB_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/';
@@ -24,7 +24,7 @@ var KINDS = ['track', 'cert', 'log'];
 var SPECIALTIES = ['HVAC/R', 'Tax preparation', 'Home care', 'Phlebotomy & medical', 'Barbering & cosmetology', 'Cleaning & environmental', 'Business owner', 'Other'];
 
 var TABS = {
-  Members: ['email', 'name', 'phone', 'specialty', 'schoolStart', 'alerts', 'share', 'role', 'partnerStatus', 'company', 'created', 'lastLogin', 'resume', 'premiumUntil', 'plan', 'digest', 'lastDigest', 'source', 'verified'],
+  Members: ['email', 'name', 'phone', 'specialty', 'schoolStart', 'alerts', 'share', 'role', 'partnerStatus', 'company', 'created', 'lastLogin', 'resume', 'premiumUntil', 'plan', 'digest', 'lastDigest', 'source', 'verified', 'fields'],
   Unions: ['id', 'name', 'trade', 'state', 'area', 'website', 'phone', 'address', 'signUp', 'requirements', 'howToApply', 'hours', 'pay', 'howItWorks', 'deadline', 'deadlineNote', 'verified', 'source', 'active', 'order'],
   Updates: ['id', 'field', 'title', 'body', 'effective', 'source', 'created', 'postedBy'],
   Plans: ['id', 'name', 'months', 'price', 'note', 'payLink', 'recurring', 'active', 'order'],
@@ -34,7 +34,7 @@ var TABS = {
   Questions: ['id', 'email', 'lang', 'question', 'answer', 'mode', 'created', 'status'],
   Codes: ['email', 'codeHash', 'expires', 'tries'],
   Sessions: ['tokenHash', 'email', 'expires', 'created'],
-  Jobs: ['id', 'title', 'company', 'category', 'pay', 'type', 'location', 'url', 'contact', 'description', 'postedBy', 'status', 'created', 'reviewedBy'],
+  Jobs: ['id', 'title', 'company', 'category', 'pay', 'type', 'location', 'url', 'contact', 'description', 'postedBy', 'status', 'created', 'reviewedBy', 'source', 'requirements', 'benefits', 'itin', 'checked', 'key'],
   Items: ['id', 'email', 'kind', 'json', 'updated'],
   Log: ['when', 'email', 'action', 'detail']
 };
@@ -126,6 +126,8 @@ function route_(action, r) {
     case 'closeJob': return closeJob_(me, r.id);
     case 'reviewPartner': return reviewPartner_(me, r.email, r.decision);
     case 'saveItem': return saveItem_(me, r.kind, r.item || {});
+    case 'sync': return sync_(me, r.ops || []);
+    case 'importJobs': return importJobs_(me);
     case 'deleteItem': return deleteItem_(me, r.id);
     case 'uploadFile': return uploadFile_(me, r);
     case 'getFile': return getFile_(me, r.fileId);
@@ -288,7 +290,7 @@ function publicMe_(m) {
     schoolStart: m.schoolStart ? Utilities.formatDate(new Date(m.schoolStart), 'America/Detroit', 'yyyy-MM-dd') : '',
     alerts: bool_(m.alerts), share: bool_(m.share), role: m.role, partnerStatus: m.partnerStatus, company: m.company,
     created: m.created, resume: resume,
-    premiumUntil: m.premiumUntil ? new Date(m.premiumUntil).toISOString() : '', premium: isPremium_(m), plan: m.plan, digest: m.digest || 'weekly'
+    premiumUntil: m.premiumUntil ? new Date(m.premiumUntil).toISOString() : '', premium: isPremium_(m), plan: m.plan, digest: m.digest || 'weekly', fields: memberFields_(m)
   };
 }
 
@@ -320,6 +322,7 @@ function saveProfile_(m, p) {
     if ('alerts' in p) m.alerts = !!p.alerts;
     if ('share' in p) m.share = !!p.share;
     if ('company' in p) m.company = clean_(p.company, 100);
+    if ('fields' in p) m.fields = (Array.isArray(p.fields) ? p.fields : []).filter(function (f) { return SPECIALTIES.indexOf(f) > -1; }).join(',');
     if ('digest' in p) m.digest = ['daily', 'weekly', 'monthly', 'off'].indexOf(p.digest) > -1 ? p.digest : 'weekly';
     if ('resume' in p) {
       var s = JSON.stringify(p.resume || {});
@@ -363,7 +366,8 @@ function reviewPartner_(me, email, decision) {
 /* ------------------------------------------------------------------ jobs */
 
 function jobOut_(j) {
-  return { id: j.id, title: j.title, company: j.company, category: j.category, pay: j.pay, type: j.type, location: j.location, url: j.url, contact: j.contact, description: j.description, status: j.status, created: j.created, mine: false };
+  return { id: j.id, title: j.title, company: j.company, category: j.category, pay: j.pay, type: j.type, location: j.location, url: j.url, contact: j.contact, description: j.description, status: j.status, created: j.created, mine: false,
+    source: j.source || '', requirements: j.requirements || '', benefits: j.benefits || '', itin: j.itin || '', checked: j.checked ? Utilities.formatDate(new Date(j.checked), 'America/Detroit', 'yyyy-MM-dd') : '' };
 }
 
 function listJobs_(m) {
@@ -383,12 +387,14 @@ function postJob_(m, j) {
     title: clean_(j.title, 120), company: clean_(j.company || m.company, 100), category: SPECIALTIES.indexOf(j.category) > -1 ? j.category : 'Other',
     pay: clean_(j.pay, 60), type: clean_(j.type, 40), location: clean_(j.location, 80),
     url: /^https?:\/\//i.test(j.url || '') ? clean_(j.url, 400) : '', contact: clean_(j.contact, 120), description: clean_(j.description, 3000),
-    postedBy: m.email, status: m.role === 'admin' ? 'approved' : 'pending', created: new Date(), reviewedBy: m.role === 'admin' ? m.email : ''
+    postedBy: m.email, status: m.role === 'admin' ? 'approved' : 'pending', created: new Date(), reviewedBy: m.role === 'admin' ? m.email : '',
+    source: m.role === 'admin' ? (clean_(j.source, 80) || JOB_SOURCE) : clean_(j.company || m.company, 100),
+    requirements: clean_(j.requirements, 1500), benefits: clean_(j.benefits, 1000), itin: clean_(j.itin, 600), checked: new Date()
   };
   if (!job.title) fail_('Please give the job a title.');
   withLock_(function () { append_('Jobs', job); });
   logEvent_(m.email, 'postJob', job.id + ' ' + job.title);
-  if (job.status === 'approved') sendJobAlerts_(job);
+  if (job.status === 'approved') { if (!(m.role === 'admin' && j.silent)) sendJobAlerts_(job); }
   else notifyAdmins_('Job waiting for approval: ' + job.title,
     '<p><b>' + esc_(job.title) + '</b> at ' + esc_(job.company) + ' was posted by ' + esc_(m.email) + ' and is waiting for your approval.</p>' +
     '<p><a href="' + APP_URL + '#admin">Approve in Connect admin</a> · <a href="' + db_().getUrl() + '">Open the Jobs sheet</a></p>');
@@ -424,7 +430,7 @@ function closeJob_(me, id) {
 
 function sendJobAlerts_(job) {
   var list = rows_('Members').filter(function (m) {
-    return bool_(m.alerts) && isEmail_(m.email) && (!m.specialty || job.category === 'Other' || m.specialty === job.category);
+    return bool_(m.alerts) && isEmail_(m.email) && (!m.specialty || job.category === 'Other' || m.specialty === job.category || memberFields_(m).indexOf(job.category) > -1);
   }).map(function (m) { return m.email; });
   if (!list.length) return 0;
   var left = MailApp.getRemainingDailyQuota();
@@ -497,16 +503,17 @@ function memberFolder_(email) {
 }
 
 function uploadFile_(m, r) {
-  var side = ['front', 'back', 'file'].indexOf(r.side) > -1 ? r.side : '';
-  if (!side) fail_('Choose front, back or file.');
+  var side = ['front', 'back', 'file', 'resume', 'cover', 'other'].indexOf(r.side) > -1 ? r.side : '';
+  if (!side) fail_('Choose which file this is.');
   var mime = String(r.mime || '');
   if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(mime) && mime !== 'application/pdf') fail_('Upload a photo or a PDF.');
   var bytes;
   try { bytes = Utilities.base64Decode(String(r.data || '')); } catch (e) { fail_('That file could not be read.'); }
   if (!bytes.length || bytes.length > MAX_FILE_BYTES) fail_('Files must be under 8 MB.');
   return withLock_(function () {
-    var row = rows_('Items').filter(function (i) { return i.id === r.certId; })[0];
-    if (!row || row.email !== m.email || row.kind !== 'cert') fail_('License not found. Save it first, then add photos.');
+    var itemId = r.itemId || r.certId;
+    var row = rows_('Items').filter(function (i) { return i.id === itemId; })[0];
+    if (!row || row.email !== m.email || (row.kind !== 'cert' && row.kind !== 'track')) fail_('Entry not found. Save it first, then add files.');
     var o = {}; try { o = JSON.parse(row.json); } catch (e) {}
     o.files = o.files || {};
     if (o.files[side]) { try { DriveApp.getFileById(o.files[side].id).setTrashed(true); } catch (e) {} }
@@ -523,7 +530,7 @@ function uploadFile_(m, r) {
 
 function getFile_(m, fileId) {
   var own = rows_('Items').some(function (i) {
-    if (i.email !== m.email || i.kind !== 'cert') return false;
+    if (i.email !== m.email || (i.kind !== 'cert' && i.kind !== 'track')) return false;
     var o = {}; try { o = JSON.parse(i.json); } catch (e) {}
     return o.files && Object.keys(o.files).some(function (s) { return o.files[s].id === fileId; });
   });
@@ -1204,4 +1211,112 @@ function orderDocOwned_(m, fileId) {
     var d = []; try { d = o.docs ? JSON.parse(o.docs) : []; } catch (e) {}
     return d.some(function (x) { return x.id === fileId; });
   });
+}
+/* ------------------------------------------------------------------ v1.2: offline sync, extra fields, curated jobs */
+
+var JOB_SOURCE = 'Found by Lamira Clean (Southfield)';
+
+function memberFields_(m) {
+  return String(m.fields || '').split(',').map(function (f) { return f.trim(); }).filter(function (f) { return SPECIALTIES.indexOf(f) > -1; });
+}
+
+// Replays changes a member made while offline. Ops run in order; one bad op doesn't stop the rest.
+function sync_(m, ops) {
+  if (!Array.isArray(ops)) fail_('Nothing to sync.');
+  if (ops.length > 300) fail_('Too many changes at once. Sync again to send the rest.');
+  var ids = {}, results = [];
+  ops.forEach(function (op) {
+    var res = { opId: op.opId, ok: true };
+    try {
+      if (op.op === 'save') {
+        var item = JSON.parse(JSON.stringify(op.item || {}));
+        var tmp = '';
+        if (item.id && /^tmp-/.test(item.id)) { tmp = item.id; item.id = ids[tmp] || ''; }
+        var out = saveItem_(m, op.kind, item).item;
+        if (tmp) ids[tmp] = out.id;
+        res.item = out; res.tmp = tmp;
+      } else if (op.op === 'delete') {
+        var id = /^tmp-/.test(op.id || '') ? ids[op.id] : op.id;
+        if (id) { try { deleteItem_(m, id); } catch (e) { if (!/not found/i.test(e.message)) throw e; } }
+      } else if (op.op === 'upload') {
+        var rr = JSON.parse(JSON.stringify(op.upload || {}));
+        var iid = rr.itemId || rr.certId;
+        if (/^tmp-/.test(iid || '')) iid = ids[iid];
+        if (!iid) fail_('The entry for this file was not saved.');
+        rr.itemId = iid; delete rr.certId;
+        res.item = uploadFile_(m, rr).item;
+      } else if (op.op === 'profile') {
+        res.me = saveProfile_(m, op.profile || {}).me;
+      } else fail_('Unknown change.');
+    } catch (e) { res.ok = false; res.error = e.message; }
+    results.push(res);
+  });
+  logEvent_(m.email, 'sync', ops.length + ' changes');
+  return { results: results, ids: ids, items: myItems_(m.email), me: publicMe_(rows_('Members').filter(function (x) { return x.email === m.email; })[0]) };
+}
+
+function syncHeads_(names) {
+  var ss = db_();
+  names.forEach(function (name) {
+    var sh = ss.getSheetByName(name), head = TABS[name];
+    var cur = sh.getRange(1, 1, 1, head.length).getValues()[0];
+    if (cur.join('|') !== head.join('|')) sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold').setBackground(NAVY).setFontColor(CREAM);
+  });
+}
+
+// HVAC / mechanical openings from the Lamira Clean job list. Posted quietly (no alert blast); adds only ones not already on the board.
+var CURATED_JOBS = [
+  { key: 'continuum-pm', title: 'HVAC Preventative Maintenance Technician (Entry-Level)', company: 'Continuum Services', pay: '$45,481–$58,769/yr', type: 'Full-time, W-2', location: 'Detroit, MI (dispatched from home)', url: 'https://to.indeed.com/aaxl2mdtfqj2',
+    description: 'Entry-level preventive maintenance on commercial HVAC. Trade-school students welcome.', requirements: 'Entry level. HVAC schooling helps. Valid driver license.', benefits: 'Company van, gas card and iPad. Paid training, 401(k), health insurance. W-2 hours can count toward Michigan mechanical license experience.' },
+  { key: 'mhc-apprentice', title: 'HVAC Install Technician – Apprentice Track', company: 'Mechanical Heating and Cooling', pay: '$24–$45/hr', type: 'Full-time, W-2', location: 'Dearborn Heights, MI', url: 'https://to.indeed.com/aa6cqygvzskv',
+    description: 'Apprentice track built for trade-school students. Supervised install work.', requirements: 'Hand and power tools. Willing to learn installs under a lead.', benefits: 'Lead installers earn up to $45/hr. Supervised hours toward licensing.' },
+  { key: 'corewell-plant', title: 'Plant and Facilities Tech', company: 'Corewell Health (Grosse Pointe Hospital)', pay: '$55,762–$79,281/yr', type: 'Full-time, W-2', location: 'Grosse Pointe, MI', url: 'https://to.indeed.com/aat9hf4xdmgw',
+    description: 'Hospital plant and facilities work: HVAC, boilers, building systems.', requirements: 'Hospitals often prefer a Michigan high-pressure boiler license and refrigeration license. Check the posting.', benefits: 'Hospital benefits package.' },
+  { key: 'onehour-southfield', title: 'HVAC Technician', company: 'One Hour Heating & Air Conditioning (franchise)', pay: '$40K–$75K', type: 'Full-time or part-time, W-2', location: 'Southfield, MI', url: 'https://to.indeed.com/aabws68yslqv',
+    description: 'Residential service technician. Flexible full-time or part-time.', requirements: 'Posting asks for 2 years of experience. Strong trade-school candidates can still apply.', benefits: 'Flexible schedule.' },
+  { key: 'rsc-commercial', title: 'Commercial HVAC/R Service Technician', company: 'RSC Mechanical, Inc.', pay: '$30–$45/hr, paid weekly', type: 'Full-time, W-2', location: 'Detroit metro (dispatched from home)', url: 'https://to.indeed.com/aan9pfmrl8m4',
+    description: 'Family-owned commercial HVAC/R contractor since 1988.', requirements: 'EPA 608 Universal required before you start. On-call rotation.', benefits: 'Weekly pay.' },
+  { key: 'hutchinson-commercial', title: 'Commercial HVAC Service Technician ($5K sign-on)', company: 'Horizon Services / Hutchinson Services', pay: '$28–$40/hr', type: 'Full-time, W-2', location: 'Largo, FL (Tampa Bay)', url: 'https://to.indeed.com/aaj2tftp62kr',
+    description: 'Commercial service in the Tampa Bay market. Listed on Indeed as Hutchinson Services.', requirements: 'Commercial service experience preferred.', benefits: '$5,000 sign-on bonus.' },
+  { key: 'horizon-install', title: 'HVAC Install Technician ($3K sign-on)', company: 'Horizon Services, Inc.', pay: '$18–$20/hr', type: 'Full-time, W-2', location: 'Largo, FL (Tampa Bay)', url: 'https://to.indeed.com/aaf9x7qrf2nx',
+    description: 'Install technician, same employer as the $5K commercial role.', requirements: 'Entry level install work.', benefits: '$3,000 sign-on bonus.' },
+  { key: '3h-lead', title: 'Lead HVAC/R Technician (sign-on bonus)', company: '3H Contracting', pay: '$30–$40/hr', type: 'Full-time, W-2', location: 'Tampa, FL', url: 'https://to.indeed.com/aamb2jxqdbj2',
+    description: 'Lead technician role.', requirements: 'Screens for 2+ years of experience and EPA 608 certification.', benefits: 'Sign-on bonus.' },
+  { key: 'cooltoday-tampa', title: 'HVAC Service Technician – Tampa', company: 'Cool Today', pay: '$50K–$150K/yr', type: 'Full-time, W-2', location: 'Tampa, FL', url: 'https://to.indeed.com/aadqwqgfjlpn',
+    description: 'Large Florida shop known for its training culture.', requirements: 'Check the posting for experience level.', benefits: 'Training program.' },
+  { key: 'baker-instructor', title: 'HVAC/R Instructor – Vocational', company: 'Baker College', pay: '$48K–$72K', type: 'Full-time, W-2', location: 'Metro Detroit, MI', url: 'https://www.baker.edu/about/employment/',
+    description: 'Employer to watch: teaching HVAC/R. Check their careers page for current openings.', requirements: 'Usually field experience plus credentials.', benefits: 'College benefits.' },
+  { key: 'lennox-refrig', title: 'Refrigeration Diagnostics Specialist', company: 'Lennox International', pay: '$60K–$85K', type: 'Full-time, W-2', location: 'Remote / field', url: 'https://www.indeed.com/q-lennox-refrigeration-technician-jobs.html',
+    description: 'Employer to watch: refrigeration technician roles. The link opens current Lennox listings.', requirements: 'EPA 608 and refrigeration diagnostics.', benefits: '' },
+  { key: 'southfield-inspector', title: 'Mechanical Inspector / Plan Reviewer', company: 'City of Southfield', pay: '$55K–$75K', type: 'Full-time, W-2', location: 'Southfield, MI', url: 'https://www.cityofsouthfield.com/jobs',
+    description: 'Employer to watch: city mechanical inspection. Check the city jobs page for openings.', requirements: 'Usually a Michigan mechanical contractor license and field experience.', benefits: 'Government benefits.' },
+  { key: 'henryford-hvacops', title: 'HVAC Operations Manager', company: 'Henry Ford Health', pay: '$75K–$110K', type: 'Full-time, W-2', location: 'Detroit metro', url: 'https://careers.henryford.com',
+    description: 'Employer to watch: hospital HVAC operations. Search "HVAC" on their careers site.', requirements: 'Facilities or HVAC operations experience.', benefits: 'Hospital benefits.' },
+  { key: 'dps-boiler', title: 'Building Systems Technician – Boiler', company: 'Detroit Public Schools Community District', pay: '$52K–$68K', type: 'Full-time, W-2', location: 'Detroit, MI', url: 'https://detroitk12.org/careers',
+    description: 'Employer to watch: school boiler and building systems. Check the district careers page.', requirements: 'Boiler coursework; a Michigan boiler license may be required.', benefits: 'Government benefits.' }
+];
+
+var ITIN_NOTE = 'W-2 job: you will fill out Form I-9 and show work authorization (for example a Social Security card or work permit). An ITIN by itself is a tax number, not work permission, so it is not accepted for I-9.';
+
+function importJobs_(me) {
+  if (me.role !== 'admin') fail_('Admins only.');
+  syncHeads_(['Jobs', 'Members']);
+  var added = withLock_(function () {
+    var have = {};
+    rows_('Jobs').forEach(function (j) { if (j.key) have[j.key] = 1; });
+    var n = 0, now = new Date();
+    CURATED_JOBS.forEach(function (c, i) {
+      if (have[c.key]) return;
+      append_('Jobs', {
+        id: 'J' + now.getTime().toString(36).toUpperCase() + i, key: c.key, title: c.title, company: c.company, category: 'HVAC/R',
+        pay: c.pay, type: c.type, location: c.location, url: c.url, contact: '', description: c.description,
+        requirements: c.requirements, benefits: c.benefits, itin: ITIN_NOTE, source: JOB_SOURCE, checked: now,
+        postedBy: me.email, status: 'approved', created: new Date(now.getTime() - i * 1000), reviewedBy: me.email
+      });
+      n++;
+    });
+    return n;
+  });
+  logEvent_(me.email, 'importJobs', added + ' added');
+  return { added: added, jobs: listJobs_(me) };
 }
