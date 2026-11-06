@@ -15,13 +15,13 @@
     'body.has-bottom-nav .hb-panel{bottom:calc(84px + env(safe-area-inset-bottom))}' +
     '.hb-panel h2{font:600 24px "Cormorant Garamond",Georgia,serif;margin:0 40px 10px 0}' +
     '.hb-x{position:absolute;top:10px;right:10px;width:44px;height:44px;border-radius:50%;border:0;background:#F1EDE4;font-size:22px;line-height:1;cursor:pointer;color:#1B2951}' +
-    '.hb-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:1px solid #E6DDC8;background:#FFFDF8;border-radius:16px;padding:12px;margin:0 0 8px;font:600 16px Figtree,system-ui,sans-serif;color:#1B2951;text-decoration:none;cursor:pointer;min-height:56px;box-sizing:border-box}' +
+    '.hb-row{display:flex;align-items:center;justify-content:flex-start;gap:12px;width:100%;text-align:left;border:1px solid #E6DDC8;background:#FFFDF8;border-radius:16px;padding:12px;margin:0 0 8px;font:600 16px Figtree,system-ui,sans-serif;color:#1B2951;text-decoration:none;cursor:pointer;min-height:56px;box-sizing:border-box}' +
     '.hb-row .hb-ic{width:40px;height:40px;flex:0 0 40px;border-radius:12px;display:grid;place-items:center;font-size:20px}' +
     '.hb-row small{display:block;font-weight:500;color:#5b6475;font-size:13px}' +
     '.hb-video{position:fixed;inset:0;z-index:80;background:rgba(10,16,34,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px}' +
     '.hb-video video{width:auto;max-width:100%;max-height:calc(100dvh - 90px);aspect-ratio:9/16;border-radius:18px;background:#000}' +
     '.hb-video .hb-x{position:static;margin-top:12px;width:auto;padding:0 22px;border-radius:999px;height:48px;font:700 16px Figtree,system-ui,sans-serif}' +
-    '.hb-watch{display:flex;align-items:center;gap:14px;width:100%;border:0;border-radius:20px;background:#1B2951;color:#fff;padding:10px 16px 10px 10px;margin:14px 0;cursor:pointer;text-align:left;font:700 17px Figtree,system-ui,sans-serif;min-height:72px}' +
+    '.hb-watch{display:flex;align-items:center;gap:14px;width:100%;border:2px solid #C9A227;border-radius:20px;background:#22356A;color:#fff;padding:10px 16px 10px 10px;margin:14px 0;cursor:pointer;text-align:left;font:700 17px Figtree,system-ui,sans-serif;min-height:72px}' +
     '.hb-watch .hb-play{width:52px;height:52px;flex:0 0 52px;border-radius:14px;background:#C9A227;display:grid;place-items:center;font-size:22px;color:#1B2951}' +
     '.hb-watch small{display:block;font-weight:500;color:#E6DDC8;font-size:13px}';
   var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
