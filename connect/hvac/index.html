@@ -49,6 +49,16 @@ form .gold{margin-top:18px}
 .small{font-size:13px;color:var(--muted);text-align:center;margin-top:10px}
 footer{text-align:center;font-size:13px;color:var(--muted);padding:0 18px 30px}
 [hidden]{display:none!important}
+.hr-title{font:600 26px/1.2 "Cormorant Garamond",Georgia,serif;color:#1B2951;margin:26px 0 4px}
+.hr-sub{font-size:14px;color:#586079;margin:0 0 12px}
+.hr-list{display:grid;gap:10px}
+@media(min-width:720px){.hr-list{grid-template-columns:repeat(2,1fr)}}
+.hr-card{background:#FFFDF8;border:1px solid #E4DCC8;border-left:5px solid #C9A961;border-radius:16px;padding:14px}
+.hr-type{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#7A5F22}
+.hr-name{display:block;font-size:17px;margin:2px 0 4px;color:#121C38}
+.hr-line{font-size:14px}.hr-note{font-size:13px;color:#586079;margin-top:6px}
+.hr-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.hr-acts a{min-height:40px;padding:0 14px;border-radius:10px;background:#1B2951;color:#FAF7F0;text-decoration:none;font-weight:600;font-size:14px;display:inline-flex;align-items:center}
 </style>
 </head>
 <body>
@@ -76,12 +86,14 @@ footer{text-align:center;font-size:13px;color:var(--muted);padding:0 18px 30px}
 <section id="done" hidden aria-live="polite">
 <div class="done-head"><h2>Thank you, <span id="who"></span>!</h2><p class="note" id="doneNote" style="margin:0">You're on the list. Save our cards below.</p></div>
 <div id="cards"></div>
+<div id="health"></div>
 <a class="btn navy cont" href="../?src=hvac-class">Continue to Connect ›</a>
 <p class="small">Connect has services, HVAC jobs, training and study help.</p>
 </section>
 </main>
 <footer>Crisp Cares · Crisp Clean · CMCC Training Institute · Crispus Mundo<br>Southfield &amp; West Bloomfield, Michigan</footer>
 <script src="../member/config.js"></script>
+<script src="../health.js"></script>
 <script>
 (function(){
 var API = window.CONNECT_API, SRC = 'hvac-class', KEY = 'connect_hvac_pending';
@@ -115,7 +127,7 @@ function showDone(name, queued){
   document.getElementById('f').hidden = true;
   document.getElementById('who').textContent = name.split(' ')[0];
   if(queued) document.getElementById('doneNote').textContent = "You're offline right now. We saved your info on this phone and will send it when you're back online.";
-  renderCards(); var d=document.getElementById('done'); d.hidden=false; window.scrollTo(0,0);
+  renderCards(); if(window.ConnectHealth) ConnectHealth(document.getElementById('health')); var d=document.getElementById('done'); d.hidden=false; window.scrollTo(0,0);
 }
 function flush(){
   var p; try{p=JSON.parse(localStorage.getItem(KEY)||'null');}catch(e){p=null;}

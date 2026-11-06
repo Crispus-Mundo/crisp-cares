@@ -17,6 +17,8 @@ var SUPPORT_EMAIL = 'LmiraC@crispcleans.com';
 var BRAND = 'Connect';
 var ORG = 'CMCC Training Institute · Crisp Cares · Crisp Clean';
 var NAVY = '#1B2951', GOLD = '#C9A961', CREAM = '#FAF7F0';
+var LOGO_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/cm-logo.png';
+var HUB_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/';
 var SESSION_DAYS = 30;
 var CODE_MINUTES = 10;
 var MAX_FILE_BYTES = 8 * 1024 * 1024;        // after base64 decode
@@ -113,6 +115,7 @@ function route_(action, r) {
     case 'ping': return { version: APP_VERSION };
     case 'requestCode': return requestCode_(r);
     case 'classSignup': return classSignup_(r);
+    case 'publicResources': return { resources: listResources_() };
     case 'verifyCode': return verifyCode_(r);
   }
   var me = auth_(r.token);
@@ -226,8 +229,52 @@ function classSignup_(r) {
   });
   notifyAdmins_((isNew ? 'New HVAC class sign-up: ' : 'HVAC class sign-up (already a member): ') + name,
     '<p><b>' + esc_(name) + '</b> · ' + esc_(phone) + ' · ' + esc_(email) + '</p><p>Source: ' + esc_(src) + '</p><p><a href="' + db_().getUrl() + '">Open the Members sheet</a> · <a href="' + APP_URL + '#admin">Connect admin</a></p>');
+  try { sendClassWelcome_(email, name); } catch (e) { logEvent_(email, 'classWelcomeFail', e.message); }
   logEvent_(email, 'classSignup', src);
   return { saved: true, isNew: isNew };
+}
+
+
+/* Branded welcome for HVAC class sign-ups: business cards, free or reduced-cost health & dental, link to Connect. */
+var CLASS_CARDS = [
+  ['Crisp Cares', 'Heating & Cooling', 'HVAC service, repair and installs. Overflow work for partner techs.', '(248) 403-8982', '2484038982'],
+  ['Crisp Cares', 'Home Care & Patient Advocacy', 'In-home care, agency staffing and help navigating care.', '(248) 403-8982', '2484038982'],
+  ['Crisp Clean', 'Taxes & Business Setup', 'Personal and business returns, 1099 tax planning, starting an LLC.', '(248) 387-9226', '2483879226'],
+  ['CMCC Training Institute', 'Jobs & Training', 'Job leads, certifications, resume help and the tax preparer path.', '(248) 387-9226', '2483879226'],
+  ['Crispus Mundo', 'Legal Help · Law Analyzer', 'Looking for an attorney? Organize your case papers and see your next steps. $39.99/month.', '', '']
+];
+function sendClassWelcome_(email, name) {
+  var first = esc_(String(name || '').split(' ')[0]);
+  var cards = CLASS_CARDS.map(function (c) {
+    return '<tr><td style="padding:0 0 10px"><table role="presentation" width="100%" style="background:' + NAVY + ';border-left:6px solid ' + GOLD + ';border-radius:10px"><tr><td style="padding:14px 16px;color:' + CREAM + '">' +
+      '<div style="font-size:11px;letter-spacing:1.5px;font-weight:bold;color:' + GOLD + '">' + esc_(c[0].toUpperCase()) + '</div>' +
+      '<div style="font-family:Georgia,serif;font-size:19px;margin:4px 0 2px;color:#fff">' + esc_(c[1]) + '</div>' +
+      '<div style="font-size:13px;color:#E6DDC8;margin-bottom:6px">' + esc_(c[2]) + '</div>' +
+      (c[3] ? '<a href="tel:+1' + c[4] + '" style="color:#fff;font-weight:bold;text-decoration:none">' + c[3] + '</a> &nbsp;&middot;&nbsp; ' : '<a href="' + APP_URL + '#legal" style="color:#fff;font-weight:bold">Learn more</a> &nbsp;&middot;&nbsp; ') +
+      '<a href="mailto:' + SUPPORT_EMAIL + '" style="color:#fff">' + SUPPORT_EMAIL + '</a></td></tr></table></td></tr>';
+  }).join('');
+  var res = listResources_().filter(function (r) { return /health|dental|insurance|help/i.test(r.type); });
+  var health = res.map(function (r) {
+    return '<tr><td style="padding:8px 0;border-top:1px solid #E4DCC8"><b>' + esc_(r.name) + '</b> <span style="color:#7A5F22;font-size:12px">' + esc_(r.type) + '</span>' +
+      (r.address ? '<br><span style="font-size:13px">' + esc_(r.address) + '</span>' : '') +
+      (r.phone ? '<br><span style="font-size:13px"><b>' + esc_(r.phone) + '</b></span>' : '') +
+      (r.note ? '<br><span style="font-size:13px;color:#586079">' + esc_(r.note) + '</span>' : '') +
+      (r.website ? '<br><a href="' + esc_(r.website) + '" style="font-size:13px;color:' + NAVY + '">' + esc_(String(r.website).replace(/^https?:\/\//, '')) + '</a>' : '') + '</td></tr>';
+  }).join('');
+  var inner =
+    '<p style="margin:0 0 14px">Hello' + (first ? ' ' + first : '') + ',</p>' +
+    '<p style="margin:0 0 14px">Thank you for signing up at class. You\'re on our list for HVAC jobs, training, class updates and services. Here are our cards so you have them in one place.</p>' +
+    '<table role="presentation" width="100%">' + cards + '</table>' +
+    '<p style="margin:18px 0 6px;font-family:Georgia,serif;font-size:19px;color:' + NAVY + '">Free or reduced-cost health &amp; dental</p>' +
+    '<p style="margin:0 0 6px;font-size:13px;color:#586079">Care for you and your family, whatever you can pay. Call ahead to confirm hours and what to bring.</p>' +
+    '<table role="presentation" width="100%">' + health + '</table>' +
+    button_(HUB_URL + '?src=hvac-class-email', 'Open Connect') +
+    '<p style="margin:10px 0 0;font-size:13px;color:#586079">To use the member app (job tracker, resume help, study cards), sign in at <a href="' + APP_URL + '" style="color:' + NAVY + '">Connect</a> with this email address. We\'ll email you a one-time code.</p>' +
+    '<p style="margin:18px 0 0">Thank you,<br>The Connect team<br><span style="color:#586079">Crisp Cares &middot; Crispus Mundo</span></p>';
+  MailApp.sendEmail({ to: email, subject: 'Welcome from Crisp Cares & Crispus Mundo — your cards and resources',
+    htmlBody: emailShell_('Your cards, free and reduced-cost health and dental, and your link to Connect', 'Welcome, HVAC class', inner,
+      'You are receiving this because you signed up with this email at your HVAC class. To stop these emails, reply and ask to be removed.'),
+    name: 'Crisp Cares & Crispus Mundo', replyTo: SUPPORT_EMAIL });
 }
 
 function requestCode_(r) {
@@ -594,7 +641,7 @@ function adminData_(me) {
 
 function notifyAdmins_(subject, html) {
   try {
-    MailApp.sendEmail({ to: 'crispcleaninc@gmail.com,crispcareses@gmail.com', subject: '[Connect] ' + subject, htmlBody: html, name: BRAND + ' alerts' });
+    MailApp.sendEmail({ to: 'crispcleaninc@gmail.com,crispcareses@gmail.com', subject: '[Connect] ' + subject, htmlBody: emailShell_(subject, subject, html, 'Internal alert from your Connect app.'), name: BRAND + ' alerts' });
   } catch (e) { logEvent_('', 'notifyFail', e.message); }
 }
 
@@ -670,7 +717,8 @@ function emailShell_(preheader, title, inner, why) {
     '<table role="presentation" width="600" style="max-width:600px;width:100%;background:#fff;border-radius:6px;overflow:hidden">' +
     '<tr><td style="background:' + CREAM + ';padding:8px 24px;font-size:12px;color:#586079">' + esc_(preheader) + '</td></tr>' +
     '<tr><td style="padding:18px 24px;border-bottom:1px solid #E4DCC8"><table role="presentation" width="100%"><tr>' +
-    '<td style="font-family:Georgia,serif;font-size:20px;font-weight:bold;color:' + NAVY + ';letter-spacing:1px">CONNECT<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:normal;color:#7A5F22;letter-spacing:.5px">' + esc_(ORG) + '</div></td>' +
+    '<td width="60" style="padding-right:12px"><img src="' + LOGO_URL + '" width="52" height="52" alt="Crispus Mundo" style="display:block;border:0;border-radius:50%"></td>' +
+    '<td style="font-family:Georgia,serif;font-size:20px;font-weight:bold;color:' + NAVY + ';letter-spacing:1px">CONNECT<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:bold;color:#7A5F22;letter-spacing:1.5px">CRISP CARES &middot; CRISPUS MUNDO</div><div style="font-family:Arial,sans-serif;font-size:11px;font-weight:normal;color:#586079;letter-spacing:.5px">' + esc_(ORG) + '</div></td>' +
     '<td align="right" style="font-size:14px"><a href="' + APP_URL + '" style="color:' + NAVY + '">Sign in</a></td></tr></table></td></tr>' +
     '<tr><td style="background:' + NAVY + ';color:' + CREAM + ';padding:16px 24px;font-size:22px;font-family:Georgia,serif">' + esc_(title) + '</td></tr>' +
     '<tr><td style="padding:24px;font-size:15px;line-height:1.55">' + inner + '</td></tr>' +

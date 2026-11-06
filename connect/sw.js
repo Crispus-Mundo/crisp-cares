@@ -1,9 +1,9 @@
 // Connect service worker. Keeps the whole app (hub + member area) on the phone so it opens with no internet.
 // Pages and scripts: network first (4s), then the saved copy. Member data is kept by the app itself (IndexedDB) and synced when online.
-var CACHE = "connect-v6";
+var CACHE = "connect-v7";
 var FILES = [
   "./", "./index.html", "./i18n.js", "./manifest.webmanifest", "./icon.svg", "./icon-192.png", "./icon-512.png", "./icon-180.png", "./help.js", "./how-it-works.mp4", "./how-it-works.jpg", "./how-it-works.vtt",
-  "./hvac/", "./member/", "./member/index.html", "./member/config.js", "./member/qrcode.js", "./member/art.js", "./member/learn.js", "./member/learn-plus.js", "./member/app.js", "./cm-logo.png", "./presenter-photo-sm.png"
+  "./hvac/", "./health.js", "./member/", "./member/index.html", "./member/config.js", "./member/qrcode.js", "./member/art.js", "./member/learn.js", "./member/learn-plus.js", "./member/app.js", "./cm-logo.png", "./presenter-photo-sm.png"
 ];
 self.addEventListener("install", function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) {

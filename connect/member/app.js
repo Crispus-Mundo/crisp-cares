@@ -252,10 +252,16 @@
       (certs.length && false ? '<h2>Coming due</h2><div class="card">' + certs.map(function (c) { return '<div class="list-item spread"><span>' + h(c.name) + '</span>' + expTag(c.expires) + '</div>'; }).join('') + '</div>' : '') +
       (fol.length && false ? '<h2>Follow up today</h2><div class="card">' + fol.map(function (t) { return '<div class="list-item spread"><span>' + h(t.title) + (t.company ? ' — ' + h(t.company) : '') + '</span><button class="link" data-act="editTrack" data-id="' + h(t.id) + '">Open</button></div>'; }).join('') + '</div>' : '') +
       '<h2>Newest jobs</h2>' + (S.jobs.filter(function (j) { return j.status === 'approved'; }).slice(0, 3).map(jobCard).join('') || '<p class="muted">No jobs posted yet. You\'ll get an email when one is.</p>') +
-      legalCard() +
+      healthCard() + legalCard() +
       (!S.me.premium ? '<div class="card"><h3>Connect Pro</h3><p class="muted">Full exam prep for your field, advanced wiring diagrams, more refreshers and hands-free car-mode playlists.</p><button class="gold" data-tab="upgrade">See plans</button></div>' : '');
   };
 
+
+  /* Free or reduced-cost health & dental (Home shortcut to the list in Ask & help) */
+  function healthCard() {
+    if (!S.resources.length) return '';
+    return '<button type="button" class="card legal-card health-card" data-act="goHealth"><span class="legal-q">Free or reduced-cost health &amp; dental</span><span class="small">' + S.resources.length + ' places and help lines for you and your family, whatever you can pay.</span><span class="chev">›</span></button>';
+  }
 
   /* Law Analyzer: legal help offer (Nov 6, 2026) */
   function legalProduct() { return S.products.filter(function (p) { return p.id === 'S8'; })[0] || null; }
@@ -883,7 +889,7 @@
       '<form data-form="ask" class="row"><label for="askQ" style="position:absolute;left:-9999px">Your question</label><textarea id="askQ" style="flex:1;min-height:56px" placeholder="Type your question…"></textarea><button class="primary" type="submit">Ask</button></form>' +
       (S.chat.length ? '<button class="link small" data-act="askClear">Start over</button>' : '') +
       '<p class="small muted">General information only. It isn\'t legal, medical or tax advice. In an emergency call 911.</p>' +
-      '<h2>Health, dental &amp; help numbers</h2>' + S.resources.map(resourceCard).join('') +
+      '<h2 id="healthList">Free or reduced-cost health, dental &amp; help numbers</h2>' + S.resources.map(resourceCard).join('') +
       '<h2>Get started with our services</h2>' + S.products.map(productCard).join('');
   };
   function sendAsk() {
@@ -1196,6 +1202,7 @@
       case 'askChip': document.getElementById('askQ').value = el.textContent; return sendAsk();
       case 'askSpeak': { var msg = S.chat[Number(el.getAttribute('data-i'))]; if (msg) playList([{ text: msg.content, show: 'Answer', lang: window.CONNECT_LANG }], 'Answer'); return; }
       case 'askClear': S.chat = []; return render();
+      case 'goHealth': go('ask'); setTimeout(function () { var t = document.getElementById('healthList'); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80); return;
       case 'signOut': stopPlayer(); api('signOut').catch(function () {}); signOutLocal(); return signInView('email', S.me.email);
     }
   });
