@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HVAC Class Sign-up | Crisp Cares & Crispus Mundo</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#1B2951">
+<link rel="icon" href="../cm-logo.png" type="image/png">
+<link rel="apple-touch-icon" href="../icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=Cormorant+Garamond:wght@600&family=Figtree:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#1B2951;--ink:#121C38;--gold:#C9A961;--gold-wash:#F1E7CF;--cream:#FAF7F0;--paper:#FFFDF8;--muted:#586079;--line:#E4DCC8;--bad:#A3271B}
+*{box-sizing:border-box}
+body{margin:0;background:var(--cream);color:var(--ink);font:17px/1.5 Figtree,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:520px;margin:0 auto;padding:0 18px}
+header{background:var(--navy);color:var(--cream);padding:26px 0 30px;text-align:center}
+header img{width:72px;height:72px}
+.brand{font:600 15px/1.2 Cinzel,Georgia,serif;letter-spacing:.12em;color:var(--gold);margin-top:8px}
+h1{font:600 32px/1.15 "Cormorant Garamond",Georgia,serif;margin:12px 0 6px}
+header p{margin:0;color:#E6DDC8}
+main{padding:20px 0 40px}
+form,.card{background:var(--paper);border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:0 6px 18px rgba(27,41,81,.08)}
+label{display:block;font-weight:600;margin:12px 0 4px}
+label:first-child{margin-top:0}
+input{width:100%;min-height:52px;border:1px solid #CFC5AE;border-radius:12px;padding:0 14px;font:inherit;background:#fff}
+input:focus{outline:3px solid var(--gold);outline-offset:1px}
+button,.btn{min-height:54px;border-radius:14px;border:0;font:600 17px/1 Figtree,sans-serif;padding:0 18px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;width:100%}
+.gold{background:var(--gold);color:var(--navy)}
+.navy{background:var(--navy);color:var(--cream)}
+.ghost{background:#fff;color:var(--navy);border:1px solid var(--line)}
+form .gold{margin-top:18px}
+.err{color:var(--bad);font-weight:600;margin:10px 0 0;min-height:1em}
+.note{font-size:13px;color:var(--muted);margin:12px 0 0}
+.done-head{text-align:center;margin:4px 0 16px}
+.done-head h2{font:600 28px/1.2 "Cormorant Garamond",Georgia,serif;margin:0 0 4px;color:var(--navy)}
+.bcard{position:relative;background:var(--navy);color:var(--cream);border-radius:18px;padding:18px 18px 14px;margin:0 0 14px;overflow:hidden;box-shadow:0 8px 20px rgba(27,41,81,.2)}
+.bcard:before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--gold)}
+.bcard .co{font:600 13px/1.2 Cinzel,Georgia,serif;letter-spacing:.1em;color:var(--gold)}
+.bcard h3{font:600 23px/1.2 "Cormorant Garamond",Georgia,serif;margin:6px 0 4px}
+.bcard p{margin:0 0 10px;font-size:15px;color:#E6DDC8}
+.bcard .line{font-size:15px;margin:2px 0}
+.bcard .line a{color:#fff}
+.acts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.acts a{min-height:44px;font-size:14px;border-radius:10px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;text-decoration:none;font-weight:600}
+.cont{margin-top:18px}
+.small{font-size:13px;color:var(--muted);text-align:center;margin-top:10px}
+footer{text-align:center;font-size:13px;color:var(--muted);padding:0 18px 30px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+<div class="wrap">
+<img src="../cm-logo.png" alt="Crispus Mundo logo">
+<div class="brand">CRISP CARES · CRISPUS MUNDO</div>
+<h1>Welcome, HVAC class</h1>
+<p>Leave your name, phone and email to stay in touch about jobs, training and services.</p>
+</div>
+</header>
+<main class="wrap">
+<form id="f" novalidate>
+<label for="n">Your name</label>
+<input id="n" autocomplete="name" required>
+<label for="p">Phone</label>
+<input id="p" type="tel" inputmode="tel" autocomplete="tel" required placeholder="(000) 000-0000">
+<label for="e">Email</label>
+<input id="e" type="email" inputmode="email" autocomplete="email" required>
+<button class="gold" id="go" type="submit">Submit</button>
+<p class="err" id="err" role="alert"></p>
+<p class="note">We only use this to send you jobs, class updates and offers from our companies. We never sell your information. You can ask us to remove it any time.</p>
+</form>
+
+<section id="done" hidden aria-live="polite">
+<div class="done-head"><h2>Thank you, <span id="who"></span>!</h2><p class="note" id="doneNote" style="margin:0">You're on the list. Save our cards below.</p></div>
+<div id="cards"></div>
+<a class="btn navy cont" href="../?src=hvac-class">Continue to Connect ›</a>
+<p class="small">Connect has services, HVAC jobs, training and study help.</p>
+</section>
+</main>
+<footer>Crisp Cares · Crisp Clean · CMCC Training Institute · Crispus Mundo<br>Southfield &amp; West Bloomfield, Michigan</footer>
+<script src="../member/config.js"></script>
+<script>
+(function(){
+var API = window.CONNECT_API, SRC = 'hvac-class', KEY = 'connect_hvac_pending';
+var EMAIL = 'LmiraC@crispcleans.com';
+var CARDS = [
+ {co:'Crisp Cares', t:'Heating & Cooling', d:'HVAC service, repair and installs. Overflow work for partner techs.', phone:'(248) 403-8982', digits:'2484038982'},
+ {co:'Crisp Cares', t:'Home Care & Patient Advocacy', d:'In-home care, agency staffing and help navigating care.', phone:'(248) 403-8982', digits:'2484038982'},
+ {co:'Crisp Clean', t:'Taxes & Business Setup', d:'Personal and business returns, 1099 tax planning, starting an LLC.', phone:'(248) 387-9226', digits:'2483879226'},
+ {co:'CMCC Training Institute', t:'Jobs & Training', d:'Job leads, certifications, resume help and the tax preparer path.', phone:'(248) 387-9226', digits:'2483879226'},
+ {co:'Crispus Mundo', t:'Legal Help · Law Analyzer', d:'Looking for an attorney? Organize your case papers and see your next steps. $39.99/month.', phone:'', digits:''}
+];
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function vcard(c){
+  var v=['BEGIN:VCARD','VERSION:3.0','FN:'+c.co+' — '+c.t,'ORG:'+c.co,'TITLE:'+c.t];
+  if(c.digits) v.push('TEL;TYPE=WORK,VOICE:+1'+c.digits);
+  v.push('EMAIL;TYPE=WORK:'+EMAIL,'URL:https://crispus-mundo.github.io/crisp-cares/connect/','END:VCARD');
+  return 'data:text/vcard;charset=utf-8,'+encodeURIComponent(v.join('\r\n'));
+}
+function renderCards(){
+  document.getElementById('cards').innerHTML = CARDS.map(function(c){
+    return '<div class="bcard"><div class="co">'+esc(c.co.toUpperCase())+'</div><h3>'+esc(c.t)+'</h3><p>'+esc(c.d)+'</p>'+
+      (c.phone?'<div class="line">'+esc(c.phone)+'</div>':'')+'<div class="line"><a href="mailto:'+EMAIL+'">'+EMAIL+'</a></div>'+
+      '<div class="acts">'+(c.digits?'<a href="tel:+1'+c.digits+'">Call</a><a href="sms:+1'+c.digits+'">Text</a>':'<a href="../member/#legal">Learn more</a><a href="mailto:'+EMAIL+'">Email</a>')+
+      '<a href="'+vcard(c)+'" download="'+esc((c.co+' '+c.t).replace(/[^a-z0-9]+/gi,'-'))+'.vcf">Save</a></div></div>';
+  }).join('');
+}
+function post(body){
+  return fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)}).then(function(r){return r.json();});
+}
+function showDone(name, queued){
+  document.getElementById('f').hidden = true;
+  document.getElementById('who').textContent = name.split(' ')[0];
+  if(queued) document.getElementById('doneNote').textContent = "You're offline right now. We saved your info on this phone and will send it when you're back online.";
+  renderCards(); var d=document.getElementById('done'); d.hidden=false; window.scrollTo(0,0);
+}
+function flush(){
+  var p; try{p=JSON.parse(localStorage.getItem(KEY)||'null');}catch(e){p=null;}
+  if(!p||!navigator.onLine) return;
+  post(p).then(function(j){ if(j&&(j.ok||j.error)) localStorage.removeItem(KEY); }).catch(function(){});
+}
+document.getElementById('f').addEventListener('submit',function(ev){
+  ev.preventDefault();
+  var name=document.getElementById('n').value.trim(), phone=document.getElementById('p').value.trim(), email=document.getElementById('e').value.trim().toLowerCase();
+  var err=document.getElementById('err'); err.textContent='';
+  if(!name) return err.textContent='Please enter your name.';
+  if(phone.replace(/\D/g,'').length<10) return err.textContent='Please enter a 10-digit phone number.';
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return err.textContent='Please enter a valid email address.';
+  var btn=document.getElementById('go'); btn.disabled=true; btn.textContent='Sending…';
+  var body={action:'classSignup',name:name,phone:phone,email:email,src:SRC};
+  if(!navigator.onLine){ try{localStorage.setItem(KEY,JSON.stringify(body));}catch(e){} return showDone(name,true); }
+  post(body).then(function(j){
+    if(j.ok) return showDone(name,false);
+    btn.disabled=false; btn.textContent='Submit'; err.textContent=j.error||'Something went wrong. Please try again.';
+  }).catch(function(){ try{localStorage.setItem(KEY,JSON.stringify(body));}catch(e){} showDone(name,true); });
+});
+window.addEventListener('online',flush); flush();
+})();
+</script>
+</body>
+</html>

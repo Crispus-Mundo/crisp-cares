@@ -112,6 +112,7 @@ function route_(action, r) {
   switch (action) {
     case 'ping': return { version: APP_VERSION };
     case 'requestCode': return requestCode_(r);
+    case 'classSignup': return classSignup_(r);
     case 'verifyCode': return verifyCode_(r);
   }
   var me = auth_(r.token);
@@ -198,6 +199,36 @@ function logEvent_(email, action, detail) {
 }
 
 /* ------------------------------------------------------------------ auth */
+
+
+/* Class sign-up (HVAC class QR, Nov 6 2026): name, phone and email only, no code.
+   Saved to Members with the class as the source so the person can sign in later with the same email. */
+function classSignup_(r) {
+  var email = clean_(r.email, 120).toLowerCase();
+  var name = clean_(r.name, 80), phone = clean_(r.phone, 30).replace(/[^0-9+()\-. ]/g, '');
+  var src = clean_(r.src, 40).replace(/[^a-z0-9_-]/gi, '') || 'hvac-class';
+  if (!name) fail_('Please enter your name.');
+  if (phone.replace(/\D/g, '').length < 10) fail_('Please enter a 10-digit phone number.');
+  if (!isEmail_(email)) fail_('Please enter a valid email address.');
+  var cache = CacheService.getScriptCache(), key = 'cs:' + hash_(email).slice(0, 40);
+  if (Number(cache.get(key) || 0) >= 5) fail_('You already signed up. Thank you!');
+  cache.put(key, String(Number(cache.get(key) || 0) + 1), 3600);
+  var isNew = withLock_(function () {
+    var m = rows_('Members').filter(function (x) { return x.email === email; })[0];
+    if (!m) {
+      append_('Members', { email: email, name: name, phone: phone, specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: ADMINS.indexOf(email) > -1 ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: '', resume: '', source: src, verified: false });
+      return true;
+    }
+    if (!m.name) m.name = name;
+    if (!m.phone) m.phone = phone;
+    write_('Members', m);
+    return false;
+  });
+  notifyAdmins_((isNew ? 'New HVAC class sign-up: ' : 'HVAC class sign-up (already a member): ') + name,
+    '<p><b>' + esc_(name) + '</b> · ' + esc_(phone) + ' · ' + esc_(email) + '</p><p>Source: ' + esc_(src) + '</p><p><a href="' + db_().getUrl() + '">Open the Members sheet</a> · <a href="' + APP_URL + '#admin">Connect admin</a></p>');
+  logEvent_(email, 'classSignup', src);
+  return { saved: true, isNew: isNew };
+}
 
 function requestCode_(r) {
   var email = clean_(r.email, 120).toLowerCase();
