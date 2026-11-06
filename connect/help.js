@@ -49,7 +49,7 @@
     var ask = inMember ? '<button type="button" class="hb-row" data-hb="ask"><span class="hb-ic" style="background:#E8F0FE">💬</span><span>Ask a question<small>Get an answer in your language</small></span></button>'
       : '<a class="hb-row" href="' + base + 'member/#ask"><span class="hb-ic" style="background:#E8F0FE">💬</span><span>Ask a question<small>Get an answer in your language</small></span></a>';
     panel.innerHTML = '<button type="button" class="hb-x" aria-label="Close">✕</button><h2>How can we help?</h2>' +
-      '<button type="button" class="hb-row" data-hb="video"><span class="hb-ic" style="background:#FFF3D1">▶</span><span>Watch how it works<small>A short video, about 90 seconds</small></span></button>' + ask +
+      '<button type="button" class="hb-row" data-hb="video"><span class="hb-ic" style="background:#FFF3D1">▶</span><span>Watch how it works<small>A short video, about a minute and a half</small></span></button>' + ask +
       '<a class="hb-row" href="sms:+1' + TEAM.digits + '?&body=' + encodeURIComponent('Hi, I have a question about Connect.') + '"><span class="hb-ic" style="background:#E3F4EA">📱</span><span>Text a team member<small>A real person, ' + TEAM.phone + '</small></span></a>' +
       '<a class="hb-row" href="tel:+1' + TEAM.digits + '"><span class="hb-ic" style="background:#F6E7EE">📞</span><span>Call us<small>' + TEAM.phone + '</small></span></a>' +
       '<a class="hb-row" href="mailto:' + TEAM.email + '?subject=' + encodeURIComponent('Connect question') + '"><span class="hb-ic" style="background:#EFEAF8">✉️</span><span>Email the team<small>' + TEAM.email + '</small></span></a>';
@@ -74,6 +74,6 @@
 
   // Big "How it works" button helper for screens that want one inline
   window.ConnectWatchButton = function () {
-    return '<button type="button" class="hb-watch" onclick="ConnectHowItWorks()"><span class="hb-play">▶</span><span>Watch how it works<small>90 seconds · with sound and captions</small></span></button>';
+    return '<button type="button" class="hb-watch" onclick="ConnectHowItWorks()"><span class="hb-play">▶</span><span>Watch how it works<small>About 1½ minutes · sound and captions</small></span></button>';
   };
 })();
