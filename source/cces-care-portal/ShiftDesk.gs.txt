@@ -1,0 +1,484 @@
+/* =====================================================================================
+ * CCES Shift Desk (v1.0 · 2026-11-07) — additive file. Nothing in the other files is removed.
+ *
+ *  • Caregivers send their availability (by text to the home care line, in the app, or the office enters it).
+ *  • The office opens a shift; the desk ranks caregivers who are available, assigned, and not double-booked.
+ *  • "Offer" sends each match a text (through the home care line agent) and a branded email with Yes / No buttons.
+ *  • The FIRST caregiver to say yes gets the shift; everyone else is told it is filled.
+ *  • When a shift is booked, the family contact gets a short text/email with the caregiver's first name and time.
+ *
+ *  Texting: Google Voice texts arrive in the crispcareses account, so the home care line agent forwards them here
+ *  (doPost action "inbound") and sends the replies/offers this desk queues (action "outbox"). Both sides share the
+ *  Script Property SHIFT_DESK_KEY. Until the agent is connected, offers still go out by email and in the app.
+ * ===================================================================================== */
+var SD = {
+  VERSION: 'shift desk v1.0 (2026-11-07)',
+  FLAG: 'SHIFT_DESK_SHEETS_V1',
+  OFFER_HOURS: 24,
+  DAYS: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
+  DAY_NAMES: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+};
+var SD_SHEETS = {
+  Availability: ['availId', 'caregiverId', 'caregiverName', 'kind', 'day', 'date', 'start', 'end', 'note', 'source', 'rawText', 'updatedAt'],
+  OpenShifts: ['shiftId', 'caseId', 'clientLabel', 'area', 'date', 'start', 'end', 'skills', 'notes', 'status', 'offeredTo', 'bookedCaregiverId', 'bookedName', 'bookedAt', 'familyNotified', 'createdBy', 'createdAt'],
+  ShiftOffers: ['offerId', 'shiftId', 'caregiverId', 'caregiverName', 'phone', 'email', 'tokenHash', 'status', 'sentAt', 'answeredAt', 'channel'],
+  ShiftOutbox: ['msgId', 'toPhone', 'toName', 'body', 'purpose', 'shiftId', 'status', 'note', 'createdAt', 'sentAt'],
+  ShiftTexts: ['textId', 'fromPhone', 'caregiverId', 'body', 'understood', 'reply', 'receivedAt']
+};
+
+function setupShiftDesk() {
+  ensureCare_();
+  var ss = db_();
+  Object.keys(SD_SHEETS).forEach(function (n) { ensureSheet_(ss, n, SD_SHEETS[n]); });
+  var p = PropertiesService.getScriptProperties();
+  if (!p.getProperty('SHIFT_DESK_KEY')) p.setProperty('SHIFT_DESK_KEY', Utilities.getUuid().replace(/-/g, ''));
+  p.setProperty(SD.FLAG, SD.VERSION);
+  return 'Shift Desk ready — ' + SD.VERSION;
+}
+function sdEnsure_() {
+  ensureCare_();
+  if (PropertiesService.getScriptProperties().getProperty(SD.FLAG) !== SD.VERSION) setupShiftDesk();
+}
+
+/* ---------------- small helpers ---------------- */
+function sdPhone_(p) { var d = String(p || '').replace(/\D/g, ''); if (d.length === 11 && d.charAt(0) === '1') d = d.slice(1); return d.length === 10 ? d : ''; }
+function sdTime_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, APP.TZ, 'HH:mm');
+  var s = String(v || '').trim(); var m = s.match(/^(\d{1,2}):(\d{2})/); return m ? ('0' + m[1]).slice(-2) + ':' + m[2] : s;
+}
+function sdDate_(v) { return v instanceof Date ? Utilities.formatDate(v, APP.TZ, 'yyyy-MM-dd') : String(v || '').slice(0, 10); }
+function sdMin_(t) { var m = String(t || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : -1; }
+function sdNice_(t) { var m = sdMin_(t); if (m < 0) return String(t || ''); var h = Math.floor(m / 60), mm = m % 60, ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return h + (mm ? ':' + ('0' + mm).slice(-2) : '') + ' ' + ap; }
+function sdDayLabel_(dateStr) { var d = new Date(dateStr + 'T12:00:00'); return Utilities.formatDate(d, APP.TZ, 'EEE, MMM d'); }
+function sdRows_(name) {
+  return readObjects_(name).map(function (r) {
+    ['date'].forEach(function (k) { if (r[k] !== undefined && r[k] !== '') r[k] = sdDate_(r[k]); });
+    ['start', 'end'].forEach(function (k) { if (r[k] !== undefined && r[k] !== '') r[k] = sdTime_(r[k]); });
+    return r;
+  });
+}
+function sdCaregivers_() { return readObjects_('Caregivers').filter(function (g) { return g.active !== 'No'; }); }
+function sdCaregiverByPhone_(phone) { var p = sdPhone_(phone); if (!p) return null; return sdCaregivers_().filter(function (g) { return sdPhone_(g.phone) === p; })[0] || null; }
+function sdFirst_(name) { return String(name || '').split(/\s+/)[0]; }
+function sdQueueText_(phone, name, body, purpose, shiftId) {
+  var p = sdPhone_(phone); if (!p) return null;
+  var row = { msgId: Utilities.getUuid(), toPhone: p, toName: name || '', body: String(body).slice(0, 600), purpose: purpose, shiftId: shiftId || '', status: 'Queued', note: '', createdAt: new Date(), sentAt: '' };
+  appendObject_('ShiftOutbox', row); return row.msgId;
+}
+
+/* ---------------- reading availability texts ----------------
+   Understands things like:
+   "Available Mon Wed Fri 9-5", "avail weekdays 8am-4pm", "Tuesday 11/12 2pm to 8pm", "tomorrow all day",
+   "not available Friday", "off sat sun", "YES", "NO", "HELP"                                                   */
+function sdParseText_(text, now) {
+  var raw = String(text || ''), t = raw.toLowerCase().replace(/[’']/g, '').replace(/\s+/g, ' ').trim();
+  now = now || new Date();
+  if (/^(y|yes|yeah|yep|ok|okay|i ?can|i will take it|accept)\b[\s!.]*$/.test(t) || /^yes\b/.test(t)) return { kind: 'yes' };
+  if (/^(n|no|nope|cant|can not|cannot|decline|pass)\b[\s!.]*$/.test(t)) return { kind: 'no' };
+  if (/^(help|\?|menu|info)$/.test(t)) return { kind: 'help' };
+  if (/^(clear|reset)( my)?( availability)?$/.test(t)) return { kind: 'clear' };
+  var off = /\b(not available|unavailable|cant work|can not work|cannot work|off|busy|no work)\b/.test(t);
+
+  // days
+  var days = [], dates = [];
+  var dayRe = /\b(sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)(day|sday|nesday|rsday|urday|s)?\b/g, m;
+  while ((m = dayRe.exec(t))) { var key = m[1].slice(0, 3); var i = SD.DAYS.indexOf(key === 'thu' ? 'thu' : key); if (i >= 0 && days.indexOf(i) < 0) days.push(i); }
+  var range = t.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\s*(?:-|to|thru|through)\s*(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/);
+  if (range) { var a = SD.DAYS.indexOf(range[1]), b = SD.DAYS.indexOf(range[2]); days = []; for (var k = a; ; k = (k + 1) % 7) { days.push(k); if (k === b || days.length > 7) break; } }
+  if (/\bweekdays?\b/.test(t)) [1, 2, 3, 4, 5].forEach(function (d) { if (days.indexOf(d) < 0) days.push(d); });
+  if (/\bweekends?\b/.test(t)) [0, 6].forEach(function (d) { if (days.indexOf(d) < 0) days.push(d); });
+  if (/\b(every ?day|daily|all week|7 days)\b/.test(t)) days = [0, 1, 2, 3, 4, 5, 6];
+  var dRe = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/g;
+  while ((m = dRe.exec(t))) {
+    var y = m[3] ? Number(m[3].length === 2 ? '20' + m[3] : m[3]) : now.getFullYear();
+    var dt = new Date(y, Number(m[1]) - 1, Number(m[2]), 12);
+    if (!m[3] && dt < new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)) dt.setFullYear(y + 1);
+    dates.push(Utilities.formatDate(dt, APP.TZ, 'yyyy-MM-dd'));
+  }
+  if (/\btoday\b/.test(t)) dates.push(Utilities.formatDate(now, APP.TZ, 'yyyy-MM-dd'));
+  if (/\btomorrow\b/.test(t)) dates.push(Utilities.formatDate(new Date(now.getTime() + 864e5), APP.TZ, 'yyyy-MM-dd'));
+  if (dates.length && days.length && !range && !/\bevery\b/.test(t)) days = []; // "Tuesday 11/12" = that date only
+
+  // times
+  var start = '', end = '';
+  var tm = t.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)?\s*(?:-|to|until|til|till|–)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)?/);
+  if (tm) {
+    var h1 = Number(tm[1]), m1 = Number(tm[2] || 0), ap1 = (tm[3] || '').charAt(0), h2 = Number(tm[4]), m2 = Number(tm[5] || 0), ap2 = (tm[6] || '').charAt(0);
+    if (!ap1 && ap2) ap1 = (h1 > h2 && ap2 === 'p') ? 'a' : ap2;
+    if (!ap1 && !ap2) { ap1 = h1 >= 7 && h1 <= 11 ? 'a' : 'p'; ap2 = h2 >= 7 && h2 <= 11 && h2 > h1 ? 'a' : 'p'; }
+    if (!ap2) ap2 = ap1 === 'a' && h2 < h1 ? 'p' : ap1;
+    var to24 = function (h, ap) { if (ap === 'p' && h < 12) h += 12; if (ap === 'a' && h === 12) h = 0; return h; };
+    start = ('0' + to24(h1, ap1)).slice(-2) + ':' + ('0' + m1).slice(-2);
+    end = ('0' + to24(h2, ap2)).slice(-2) + ':' + ('0' + m2).slice(-2);
+  } else if (/\b(all day|any ?time|anytime|open)\b/.test(t)) { start = '07:00'; end = '21:00'; }
+  else if (/\bmornings?\b/.test(t)) { start = '07:00'; end = '12:00'; }
+  else if (/\bafternoons?\b/.test(t)) { start = '12:00'; end = '17:00'; }
+  else if (/\b(evenings?|nights?)\b/.test(t)) { start = '17:00'; end = '22:00'; }
+  else if (/\b(overnight)\b/.test(t)) { start = '21:00'; end = '07:00'; }
+
+  if (!days.length && !dates.length) return { kind: 'unknown' };
+  if (off) return { kind: 'off', days: days, dates: dates };
+  if (!start) { start = '07:00'; end = '21:00'; }
+  return { kind: 'avail', days: days, dates: dates, start: start, end: end };
+}
+
+function sdApplyAvailability_(g, parsed, source, rawText) {
+  var now = new Date(), rows = [];
+  var existing = sdRows_('Availability').filter(function (a) { return a.caregiverId === g.caregiverId; });
+  (parsed.days || []).forEach(function (d) {
+    existing.filter(function (a) { return a.kind !== 'date' && String(a.day) === String(d); }).forEach(function (a) { careDelete_('Availability', 'availId', a.availId); });
+    rows.push({ kind: parsed.kind === 'off' ? 'weekly-off' : 'weekly', day: d, date: '' });
+  });
+  (parsed.dates || []).forEach(function (ds) {
+    existing.filter(function (a) { return String(a.date) === ds; }).forEach(function (a) { careDelete_('Availability', 'availId', a.availId); });
+    rows.push({ kind: parsed.kind === 'off' ? 'date-off' : 'date', day: '', date: ds });
+  });
+  rows.forEach(function (r) {
+    appendObject_('Availability', { availId: Utilities.getUuid(), caregiverId: g.caregiverId, caregiverName: g.name, kind: r.kind, day: r.day, date: r.date,
+      start: parsed.kind === 'off' ? '' : parsed.start, end: parsed.kind === 'off' ? '' : parsed.end, note: '', source: source, rawText: String(rawText || '').slice(0, 300), updatedAt: now });
+  });
+  return rows.length;
+}
+function sdSummary_(parsed) {
+  var parts = (parsed.days || []).map(function (d) { return SD.DAY_NAMES[d].slice(0, 3); }).concat((parsed.dates || []).map(sdDayLabel_));
+  return parts.join(', ') + (parsed.kind === 'off' ? ' marked OFF' : ' ' + sdNice_(parsed.start) + '–' + sdNice_(parsed.end));
+}
+
+/* ---------------- who is free for a shift ---------------- */
+function sdAvailableFor_(g, dateStr, start, end, avail) {
+  var dow = new Date(dateStr + 'T12:00:00').getDay();
+  var mine = avail.filter(function (a) { return a.caregiverId === g.caregiverId; });
+  var s = sdMin_(start), e = sdMin_(end); if (e <= s) e += 1440;
+  var covers = function (a) { var as = sdMin_(a.start), ae = sdMin_(a.end); if (ae <= as) ae += 1440; return as <= s && ae >= e; };
+  var dated = mine.filter(function (a) { return String(a.date) === dateStr; });
+  if (dated.some(function (a) { return a.kind === 'date-off'; })) return { ok: false, why: 'Marked off that day' };
+  if (dated.some(function (a) { return a.kind === 'date' && covers(a); })) return { ok: true, why: 'Free that date' };
+  var weekly = mine.filter(function (a) { return String(a.day) === String(dow); });
+  if (weekly.some(function (a) { return a.kind === 'weekly-off'; })) return { ok: false, why: 'Off on ' + SD.DAY_NAMES[dow] + 's' };
+  if (weekly.some(function (a) { return a.kind === 'weekly' && covers(a); })) return { ok: true, why: 'Free ' + SD.DAY_NAMES[dow] + 's' };
+  if (dated.length || weekly.length) return { ok: false, why: 'Free that day but not those hours' };
+  return { ok: false, why: 'No availability on file' };
+}
+function sdBusy_(cgId, dateStr, start, end, shifts, exceptShiftId) {
+  var s = sdMin_(start), e = sdMin_(end); if (e <= s) e += 1440;
+  return shifts.some(function (x) {
+    if (x.shiftId === exceptShiftId || x.status !== 'Booked' || x.bookedCaregiverId !== cgId || String(x.date) !== dateStr) return false;
+    var xs = sdMin_(x.start), xe = sdMin_(x.end); if (xe <= xs) xe += 1440; return xs < e && s < xe;
+  });
+}
+function sdMatches_(shift) {
+  var avail = sdRows_('Availability'), shifts = sdRows_('OpenShifts');
+  var assigned = String((profileOf_(shift.caseId) || {}).assignedCaregivers || '').split(',').map(function (s) { return s.trim(); });
+  var need = String(shift.skills || '').toLowerCase().split(/[,;]/).map(function (s) { return s.trim(); }).filter(String);
+  return sdCaregivers_().map(function (g) {
+    var a = sdAvailableFor_(g, shift.date, shift.start, shift.end, avail);
+    var busy = sdBusy_(g.caregiverId, shift.date, shift.start, shift.end, shifts, shift.shiftId);
+    var skills = String(g.skills || '').toLowerCase();
+    var hasSkills = need.every(function (k) { return skills.indexOf(k) >= 0; });
+    var knows = assigned.indexOf(g.caregiverId) >= 0;
+    var score = (a.ok ? 50 : 0) + (busy ? -100 : 0) + (knows ? 25 : 0) + (hasSkills ? 15 : 0) + (sdPhone_(g.phone) ? 5 : 0) + (g.email ? 3 : 0);
+    return { caregiverId: g.caregiverId, name: g.name, phone: g.phone, email: g.email, available: a.ok && !busy, why: busy ? 'Already booked then' : a.why, knowsClient: knows, hasSkills: hasSkills, score: score };
+  }).sort(function (x, y) { return y.score - x.score; });
+}
+
+/* ---------------- office (staff) ---------------- */
+function sdBoard(token) {
+  requireStaff_(token); sdEnsure_();
+  var today = Utilities.formatDate(new Date(), APP.TZ, 'yyyy-MM-dd');
+  var shifts = sdRows_('OpenShifts').filter(function (s) { return String(s.date) >= today || s.status === 'Open' || s.status === 'Offered'; })
+    .sort(function (a, b) { return (String(a.date) + a.start).localeCompare(String(b.date) + b.start); });
+  var offers = sdRows_('ShiftOffers');
+  var clients = careRows_('Profiles').filter(function (p) { return p.careStatus !== 'Services ended' && p.careStatus !== 'Deceased'; })
+    .map(function (p) { return { caseId: p.caseId, name: p.preferredName || p.legalName || p.caseId }; });
+  var avail = sdRows_('Availability');
+  var cgs = sdCaregivers_().map(function (g) {
+    var mine = avail.filter(function (a) { return a.caregiverId === g.caregiverId; });
+    return { caregiverId: g.caregiverId, name: g.name, phone: g.phone, email: g.email, hasPhone: !!sdPhone_(g.phone),
+      availability: mine.map(function (a) { return { availId: a.availId, kind: a.kind, day: a.day, date: a.date, start: a.start, end: a.end, source: a.source }; }) };
+  });
+  var queued = sdRows_('ShiftOutbox').filter(function (m) { return m.status === 'Queued' || m.status === 'Sending'; }).length;
+  var p = PropertiesService.getScriptProperties();
+  return plain_({
+    version: SD.VERSION, shifts: shifts.map(function (s) {
+      var o = offers.filter(function (x) { return x.shiftId === s.shiftId; });
+      return Object.assign({}, s, { offers: o.map(function (x) { return { name: x.caregiverName, status: x.status, channel: x.channel }; }) });
+    }), clients: clients, caregivers: cgs, queuedTexts: queued,
+    agentConnected: !!p.getProperty('SHIFT_DESK_AGENT_SEEN'), agentLastSeen: p.getProperty('SHIFT_DESK_AGENT_SEEN') || '',
+    linePhone: APP.PHONE
+  });
+}
+function sdSaveShift(token, s) {
+  requireStaff_(token); sdEnsure_();
+  s = s || {};
+  var caseId = clean_(s.caseId).toUpperCase(); needCase_(caseId);
+  var date = clean_(s.date), start = sdTime_(clean_(s.start)), end = sdTime_(clean_(s.end));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || sdMin_(start) < 0 || sdMin_(end) < 0) throw new Error('Pick a date, start and end time.');
+  var prof = profileOf_(caseId), c = findClient_(caseId) || {};
+  var nm = String(prof.preferredName || prof.legalName || c.clientName || '');
+  var label = (sdFirst_(nm) || 'Client') + ' ' + (nm.split(/\s+/).length > 1 ? nm.split(/\s+/).pop().charAt(0) + '.' : '');
+  var row = { shiftId: clean_(s.shiftId) || ('SH-' + Utilities.formatDate(new Date(), APP.TZ, 'yyMMdd') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()),
+    caseId: caseId, clientLabel: label.trim(), area: clean_(s.area) || clean_(c.city) || '', date: date, start: start, end: end,
+    skills: clean_(s.skills), notes: clean_(s.notes), status: clean_(s.status) || 'Open', createdBy: 'Office', createdAt: new Date() };
+  careUpsert_('OpenShifts', 'shiftId', row);
+  log_(caseId, 'Office', 'Shift opened', row.shiftId + ' ' + date + ' ' + start + '-' + end);
+  return sdBoard(token);
+}
+function sdCancelShift(token, shiftId) {
+  requireStaff_(token); sdEnsure_();
+  var s = sdRows_('OpenShifts').filter(function (x) { return x.shiftId === shiftId; })[0]; if (!s) throw new Error('Shift not found.');
+  careUpsert_('OpenShifts', 'shiftId', { shiftId: shiftId, status: 'Cancelled' });
+  sdRows_('ShiftOffers').filter(function (o) { return o.shiftId === shiftId && o.status === 'Offered'; }).forEach(function (o) {
+    careUpsert_('ShiftOffers', 'offerId', { offerId: o.offerId, status: 'Withdrawn' });
+  });
+  if (s.bookedCaregiverId) {
+    var g = sdCaregivers_().filter(function (x) { return x.caregiverId === s.bookedCaregiverId; })[0];
+    if (g) sdQueueText_(g.phone, g.name, 'Crisp Cares: the ' + sdDayLabel_(s.date) + ' ' + sdNice_(s.start) + ' shift has been cancelled. You do not need to go. Questions? Call ' + APP.PHONE + '.', 'cancel', shiftId);
+  }
+  return sdBoard(token);
+}
+function sdMatchesFor(token, shiftId) {
+  requireStaff_(token); sdEnsure_();
+  var s = sdRows_('OpenShifts').filter(function (x) { return x.shiftId === shiftId; })[0]; if (!s) throw new Error('Shift not found.');
+  return plain_(sdMatches_(s));
+}
+function sdOffer(token, shiftId, caregiverIds) {
+  requireStaff_(token); sdEnsure_();
+  var s = sdRows_('OpenShifts').filter(function (x) { return x.shiftId === shiftId; })[0]; if (!s) throw new Error('Shift not found.');
+  if (s.status === 'Booked') throw new Error('This shift is already booked.');
+  if (s.status === 'Cancelled') throw new Error('This shift was cancelled.');
+  var matches = sdMatches_(s), ids = (caregiverIds && caregiverIds.length) ? caregiverIds : matches.filter(function (m) { return m.available; }).map(function (m) { return m.caregiverId; });
+  if (!ids.length) throw new Error('No available caregivers to offer to. Add availability or pick caregivers by hand.');
+  var already = sdRows_('ShiftOffers').filter(function (o) { return o.shiftId === shiftId && o.status === 'Offered'; }).map(function (o) { return o.caregiverId; });
+  var sent = 0;
+  ids.forEach(function (id) {
+    if (already.indexOf(id) >= 0) return;
+    var g = sdCaregivers_().filter(function (x) { return x.caregiverId === id; })[0]; if (!g) return;
+    var tok = Utilities.getUuid().replace(/-/g, '');
+    var o = { offerId: Utilities.getUuid(), shiftId: shiftId, caregiverId: g.caregiverId, caregiverName: g.name, phone: sdPhone_(g.phone), email: g.email || '', tokenHash: hash_(tok), status: 'Offered', sentAt: new Date(), answeredAt: '', channel: '' };
+    var ch = [];
+    if (o.phone) { sdQueueText_(o.phone, g.name, 'Crisp Cares shift open: ' + sdDayLabel_(s.date) + ' ' + sdNice_(s.start) + '-' + sdNice_(s.end) + (s.area ? ', ' + s.area : '') + '. Reply YES to take it or NO to pass. First yes gets it.', 'offer', shiftId); ch.push('text'); }
+    if (g.email) { sdOfferEmail_(g, s, tok); ch.push('email'); }
+    o.channel = ch.join('+') || 'app only';
+    appendObject_('ShiftOffers', o); sent++;
+  });
+  careUpsert_('OpenShifts', 'shiftId', { shiftId: shiftId, status: 'Offered', offeredTo: (String(s.offeredTo || '') + ',' + ids.join(',')).replace(/^,/, '') });
+  log_(s.caseId, 'Office', 'Shift offered', shiftId + ' to ' + sent + ' caregiver(s)');
+  return sdBoard(token);
+}
+function sdBookDirect(token, shiftId, caregiverId) {
+  requireStaff_(token); sdEnsure_();
+  var r = sdAccept_(shiftId, caregiverId, 'office');
+  if (!r.ok) throw new Error(r.message);
+  return sdBoard(token);
+}
+function sdSaveAvailability(token, caregiverId, text) {
+  requireStaff_(token); sdEnsure_();
+  var g = sdCaregivers_().filter(function (x) { return x.caregiverId === caregiverId; })[0]; if (!g) throw new Error('Caregiver not found.');
+  var p = sdParseText_(text); if (p.kind !== 'avail' && p.kind !== 'off') throw new Error('Could not read that. Try: "Mon Wed Fri 9am-5pm" or "11/14 off".');
+  sdApplyAvailability_(g, p, 'office', text);
+  return sdBoard(token);
+}
+function sdDeleteAvailability(token, availId) { requireStaff_(token); sdEnsure_(); careDelete_('Availability', 'availId', availId); return sdBoard(token); }
+function sdAgentSetup(token) {
+  requireStaff_(token); sdEnsure_();
+  return { url: ScriptApp.getService().getUrl(), key: PropertiesService.getScriptProperties().getProperty('SHIFT_DESK_KEY') };
+}
+
+/* ---------------- caregivers (in the app) ---------------- */
+function sdCaregiverView(token) {
+  var cgId = requireCaregiver_(token); sdEnsure_();
+  var today = Utilities.formatDate(new Date(), APP.TZ, 'yyyy-MM-dd');
+  var shifts = sdRows_('OpenShifts');
+  var offers = sdRows_('ShiftOffers').filter(function (o) { return o.caregiverId === cgId && o.status === 'Offered'; })
+    .map(function (o) { var s = shifts.filter(function (x) { return x.shiftId === o.shiftId; })[0]; return s && s.status !== 'Booked' && s.status !== 'Cancelled' && String(s.date) >= today ? { shiftId: s.shiftId, when: sdDayLabel_(s.date) + ' ' + sdNice_(s.start) + '–' + sdNice_(s.end), area: s.area, notes: s.notes } : null; })
+    .filter(Boolean);
+  var mine = shifts.filter(function (s) { return s.status === 'Booked' && s.bookedCaregiverId === cgId && String(s.date) >= today; })
+    .map(function (s) { return { when: sdDayLabel_(s.date) + ' ' + sdNice_(s.start) + '–' + sdNice_(s.end), client: s.clientLabel, area: s.area }; });
+  var avail = sdRows_('Availability').filter(function (a) { return a.caregiverId === cgId; })
+    .map(function (a) { return { availId: a.availId, label: (a.kind.indexOf('weekly') === 0 ? SD.DAY_NAMES[Number(a.day)] + 's' : sdDayLabel_(a.date)) + (a.kind.indexOf('off') > 0 ? ' — off' : ' ' + sdNice_(a.start) + '–' + sdNice_(a.end)) }; });
+  return plain_({ offers: offers, booked: mine, availability: avail, linePhone: APP.PHONE });
+}
+function sdCaregiverSetAvailability(token, text) {
+  var cgId = requireCaregiver_(token); sdEnsure_();
+  var g = sdCaregivers_().filter(function (x) { return x.caregiverId === cgId; })[0];
+  var p = sdParseText_(text); if (p.kind !== 'avail' && p.kind !== 'off') throw new Error('Could not read that. Try: "Mon Wed Fri 9am-5pm" or "11/14 off".');
+  sdApplyAvailability_(g, p, 'app', text);
+  return sdCaregiverView(token);
+}
+function sdCaregiverDeleteAvailability(token, availId) {
+  var cgId = requireCaregiver_(token); sdEnsure_();
+  var a = sdRows_('Availability').filter(function (x) { return x.availId === availId && x.caregiverId === cgId; })[0];
+  if (a) careDelete_('Availability', 'availId', availId);
+  return sdCaregiverView(token);
+}
+function sdCaregiverAnswer(token, shiftId, yes) {
+  var cgId = requireCaregiver_(token); sdEnsure_();
+  if (yes) { var r = sdAccept_(shiftId, cgId, 'app'); if (!r.ok) throw new Error(r.message); }
+  else sdDecline_(shiftId, cgId, 'app');
+  return sdCaregiverView(token);
+}
+
+/* ---------------- first yes wins ---------------- */
+function sdAccept_(shiftId, cgId, channel) {
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var s = sdRows_('OpenShifts').filter(function (x) { return x.shiftId === shiftId; })[0];
+    if (!s) return { ok: false, message: 'That shift was not found.' };
+    if (s.status === 'Cancelled') return { ok: false, message: 'That shift was cancelled.' };
+    if (s.status === 'Booked') return { ok: false, message: s.bookedCaregiverId === cgId ? 'You already have this shift.' : 'Sorry, that shift was already filled. Thank you for answering!' };
+    var g = sdCaregivers_().filter(function (x) { return x.caregiverId === cgId; })[0]; if (!g) return { ok: false, message: 'Caregiver not found.' };
+    if (sdBusy_(cgId, s.date, s.start, s.end, sdRows_('OpenShifts'), shiftId)) return { ok: false, message: 'You are already booked at that time.' };
+    careUpsert_('OpenShifts', 'shiftId', { shiftId: shiftId, status: 'Booked', bookedCaregiverId: cgId, bookedName: g.name, bookedAt: new Date() });
+    sdRows_('ShiftOffers').filter(function (o) { return o.shiftId === shiftId; }).forEach(function (o) {
+      var mine = o.caregiverId === cgId;
+      if (o.status === 'Offered' || mine) careUpsert_('ShiftOffers', 'offerId', { offerId: o.offerId, status: mine ? 'Accepted' : 'Filled', answeredAt: mine ? new Date() : o.answeredAt });
+      if (!mine && o.status === 'Offered' && o.phone) sdQueueText_(o.phone, o.caregiverName, 'Crisp Cares: the ' + sdDayLabel_(s.date) + ' ' + sdNice_(s.start) + ' shift has been filled. Thank you!', 'filled', shiftId);
+    });
+    var prof = profileOf_(s.caseId), assigned = String(prof.assignedCaregivers || '').split(',').map(function (x) { return x.trim(); }).filter(String);
+    if (assigned.indexOf(cgId) < 0) { assigned.push(cgId); careUpsert_('Profiles', 'caseId', { caseId: s.caseId, assignedCaregivers: assigned.join(', ') }); }
+    if (sdPhone_(g.phone) && channel !== 'text') sdQueueText_(g.phone, g.name, 'Crisp Cares: you are booked ' + sdDayLabel_(s.date) + ' ' + sdNice_(s.start) + '-' + sdNice_(s.end) + '. Client details are in your Crisp Cares app. Thank you!', 'booked', shiftId);
+    sdNotifyFamily_(s, g);
+    log_(s.caseId, g.name, 'Shift booked', shiftId + ' via ' + channel);
+    try { MailApp.sendEmail({ to: APP.EMAIL, subject: 'Shift filled: ' + sdDayLabel_(s.date) + ' ' + sdNice_(s.start) + ' — ' + g.name, htmlBody: sdShell_('Shift filled', '<p style="margin:0 0 12px">' + brandEscSD_(g.name) + ' took the ' + brandEscSD_(sdDayLabel_(s.date) + ' ' + sdNice_(s.start) + '–' + sdNice_(s.end)) + ' shift for ' + brandEscSD_(s.clientLabel) + ' (' + brandEscSD_(s.caseId) + ').</p>', { label: 'Open Shift Desk', url: ScriptApp.getService().getUrl() + '?page=care' }, false), name: 'CCES Shift Desk' }); } catch (e) {}
+    return { ok: true, message: 'You got it! You are booked ' + sdDayLabel_(s.date) + ' ' + sdNice_(s.start) + '–' + sdNice_(s.end) + '.' };
+  } finally { lock.releaseLock(); }
+}
+function sdDecline_(shiftId, cgId, channel) {
+  sdRows_('ShiftOffers').filter(function (o) { return o.shiftId === shiftId && o.caregiverId === cgId && o.status === 'Offered'; })
+    .forEach(function (o) { careUpsert_('ShiftOffers', 'offerId', { offerId: o.offerId, status: 'Declined', answeredAt: new Date() }); });
+}
+function sdNotifyFamily_(s, g) {
+  var c = findClient_(s.caseId) || {};
+  var msg = 'Crisp Cares: ' + sdFirst_(g.name) + ' will be your caregiver on ' + sdDayLabel_(s.date) + ' from ' + sdNice_(s.start) + ' to ' + sdNice_(s.end) + '. Questions? Call or text ' + APP.PHONE + '.';
+  var done = [];
+  if (sdPhone_(c.contactPhone)) { sdQueueText_(c.contactPhone, c.contactName, msg, 'family', s.shiftId); done.push('text'); }
+  if (c.contactEmail) {
+    try {
+      MailApp.sendEmail({ to: c.contactEmail, subject: 'Your Crisp Cares caregiver for ' + sdDayLabel_(s.date), name: 'Crisp Cares Home Care',
+        htmlBody: sdShell_('Your caregiver is scheduled', '<p style="margin:0 0 12px">Hello' + (c.contactName ? ' ' + brandEscSD_(sdFirst_(c.contactName)) : '') + ',</p><p style="margin:0 0 12px"><b>' + brandEscSD_(sdFirst_(g.name)) + '</b> will be with your loved one on <b>' + brandEscSD_(sdDayLabel_(s.date)) + '</b> from <b>' + sdNice_(s.start) + '</b> to <b>' + sdNice_(s.end) + '</b>.</p>',
+          { label: 'Call Crisp Cares', url: 'tel:' + String(APP.PHONE).replace(/\D/g, '') }, true),
+        body: msg });
+      done.push('email');
+    } catch (e) { console.error(e); }
+  }
+  careUpsert_('OpenShifts', 'shiftId', { shiftId: s.shiftId, familyNotified: done.join('+') || 'no contact on file' });
+}
+
+/* ---------------- branded email ---------------- */
+function brandEscSD_(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function sdButton_(b, gold) {
+  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:10px 0"><tr><td align="center" bgcolor="' + (gold ? '#C9A961' : '#1B2951') + '" style="border-radius:12px">' +
+    '<a href="' + b.url + '" target="_blank" style="display:block;padding:16px 18px;font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:bold;color:' + (gold ? '#1B2951' : '#ffffff') + ';text-decoration:none;border-radius:12px">' + brandEscSD_(b.label) + ' &rsaquo;</a></td></tr></table>';
+}
+function sdShell_(title, inner, button, external) {
+  var notice = external
+    ? 'This message was prepared by the Crisp Cares scheduling assistant, used as an ADA accommodation (42 U.S.C. § 12101 et seq.) for Ciarne Cyars, who reviews it and remains fully responsible for it. If anything is wrong, please tell us in writing so we can correct it in writing. Crisp Cares protects health information under HIPAA (45 CFR Parts 160 and 164) and shares only what is needed for your care.'
+    : 'Crisp Cares Environmental Services · internal scheduling notice.';
+  return '<div style="background:#FAF7F0;padding:16px 0;font-family:Arial,Helvetica,sans-serif;color:#1d2430">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e3ddcf">' +
+    '<tr><td style="padding:18px 22px;border-bottom:3px solid #C9A961"><div style="font-family:Georgia,serif;font-size:22px;font-weight:bold;color:#1B2951">Crisp Cares</div><div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#55606e">Home Care · CCES Care Portal</div></td></tr>' +
+    '<tr><td style="background:#1B2951;color:#fff;padding:18px 22px;font-family:Georgia,serif;font-size:22px;font-weight:bold">' + brandEscSD_(title) + '</td></tr>' +
+    '<tr><td style="padding:22px;font-size:16px;line-height:1.6">' + inner + (Array.isArray(button) ? button.map(function (b, i) { return sdButton_(b, i === 0); }).join('') : (button ? sdButton_(button, false) : '')) + '</td></tr>' +
+    '<tr><td style="background:#f7f8fa;padding:14px 22px;font-size:11px;line-height:1.5;color:#55606e">' + notice + '<br>Crisp Cares Environmental Services · ' + brandEscSD_(APP.PHONE) + '</td></tr></table></div>';
+}
+function sdOfferEmail_(g, s, tok) {
+  var base = ScriptApp.getService().getUrl();
+  var yes = base + '?shift=' + encodeURIComponent(s.shiftId) + '&cg=' + encodeURIComponent(g.caregiverId) + '&t=' + tok + '&a=yes';
+  var no = base + '?shift=' + encodeURIComponent(s.shiftId) + '&cg=' + encodeURIComponent(g.caregiverId) + '&t=' + tok + '&a=no';
+  var inner = '<p style="margin:0 0 12px">Hi ' + brandEscSD_(sdFirst_(g.name)) + ', a shift is open:</p>' +
+    '<table role="presentation" width="100%" style="background:#f7f8fa;border:1px solid #e3ddcf;border-left:4px solid #C9A961;border-radius:10px;margin:0 0 12px"><tr><td style="padding:14px 16px">' +
+    '<div style="font-size:18px;font-weight:bold;color:#1B2951">' + brandEscSD_(sdDayLabel_(s.date)) + '</div>' +
+    '<div style="font-size:16px">' + sdNice_(s.start) + ' – ' + sdNice_(s.end) + (s.area ? ' · ' + brandEscSD_(s.area) : '') + '</div>' +
+    (s.notes ? '<div style="font-size:14px;color:#55606e;margin-top:6px">' + brandEscSD_(s.notes) + '</div>' : '') + '</td></tr></table>' +
+    '<p style="margin:0 0 4px;font-size:14px;color:#55606e">The first caregiver to tap Yes gets the shift.</p>';
+  try {
+    MailApp.sendEmail({ to: g.email, subject: 'Open shift ' + sdDayLabel_(s.date) + ' ' + sdNice_(s.start) + ' — tap to take it', name: 'Crisp Cares Shift Desk',
+      htmlBody: sdShell_('Open shift — can you take it?', inner, [{ label: 'Yes, I will take it', url: yes }, { label: 'No, I can’t', url: no }], true),
+      body: 'Open shift ' + sdDayLabel_(s.date) + ' ' + sdNice_(s.start) + '-' + sdNice_(s.end) + '. Reply in your Crisp Cares app, or text YES to ' + APP.PHONE + '.' });
+  } catch (e) { console.error(e); }
+}
+/** Tap-button links from offer emails: doGet calls this when ?shift= is present. */
+function sdLinkPage_(e) {
+  sdEnsure_();
+  var p = e.parameter, shiftId = clean_(p.shift), cgId = clean_(p.cg), tok = clean_(p.t), yes = p.a === 'yes';
+  var o = sdRows_('ShiftOffers').filter(function (x) { return x.shiftId === shiftId && x.caregiverId === cgId && x.tokenHash === hash_(tok); })[0];
+  var title, msg;
+  if (!o) { title = 'Link not valid'; msg = 'This link is not valid anymore. Open your Crisp Cares app or call ' + APP.PHONE + '.'; }
+  else if (yes) { var r = sdAccept_(shiftId, cgId, 'email'); title = r.ok ? 'You got the shift!' : 'Thank you'; msg = r.message; }
+  else { sdDecline_(shiftId, cgId, 'email'); title = 'Thanks for letting us know'; msg = 'We will offer this shift to someone else.'; }
+  var html = '<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Crisp Cares Shift Desk</title></head><body style="margin:0">' +
+    sdShell_(title, '<p style="margin:0 0 12px;font-size:18px">' + brandEscSD_(msg) + '</p>', { label: 'Open my Crisp Cares app', url: ScriptApp.getService().getUrl() + '?page=care' }, false) + '</body></html>';
+  return HtmlService.createHtmlOutput(html).setTitle('Crisp Cares Shift Desk').addMetaTag('viewport', 'width=device-width, initial-scale=1').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/* ---------------- home care line agent hookup (texts) ---------------- */
+function doPost(e) {
+  var out = { ok: false };
+  try {
+    var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    var key = PropertiesService.getScriptProperties().getProperty('SHIFT_DESK_KEY');
+    if (!key || body.key !== key) throw new Error('not allowed');
+    sdEnsure_();
+    PropertiesService.getScriptProperties().setProperty('SHIFT_DESK_AGENT_SEEN', new Date().toISOString());
+    if (body.action === 'inbound') out = sdInbound_(body.from, body.text);
+    else if (body.action === 'outbox') out = sdOutbox_(Number(body.limit) || 20);
+    else if (body.action === 'sent') out = sdMarkSent_(body.results || []);
+    else throw new Error('unknown action');
+    out.ok = true;
+  } catch (err) { out = { ok: false, error: String(err.message || err) }; }
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+/** A text came in to the home care line. Returns { handled, reply }. handled=false means "not a caregiver — the agent should answer as usual". */
+function sdInbound_(from, text) {
+  var g = sdCaregiverByPhone_(from);
+  if (!g) return { handled: false };
+  var p = sdParseText_(text), reply = '';
+  if (p.kind === 'yes' || p.kind === 'no') {
+    var open = sdRows_('ShiftOffers').filter(function (o) { return o.caregiverId === g.caregiverId && o.status === 'Offered'; })
+      .sort(function (a, b) { return new Date(b.sentAt) - new Date(a.sentAt); })[0];
+    if (!open) reply = 'Crisp Cares: there is no open shift waiting on your answer right now. Text your availability anytime, like "Mon Wed 9am-5pm".';
+    else if (p.kind === 'yes') reply = 'Crisp Cares: ' + sdAccept_(open.shiftId, g.caregiverId, 'text').message;
+    else { sdDecline_(open.shiftId, g.caregiverId, 'text'); reply = 'Crisp Cares: got it, thank you. We will offer it to someone else.'; }
+  } else if (p.kind === 'avail' || p.kind === 'off') {
+    sdApplyAvailability_(g, p, 'text', text);
+    reply = 'Crisp Cares: thanks ' + sdFirst_(g.name) + '! Saved ' + sdSummary_(p) + '. Text CLEAR to start over.';
+  } else if (p.kind === 'clear') {
+    sdRows_('Availability').filter(function (a) { return a.caregiverId === g.caregiverId; }).forEach(function (a) { careDelete_('Availability', 'availId', a.availId); });
+    reply = 'Crisp Cares: your availability is cleared. Text your days and hours anytime.';
+  } else if (p.kind === 'help') {
+    reply = 'Crisp Cares Shift Desk: text your days and hours like "Mon Wed Fri 9am-5pm", "11/14 off" or "weekends all day". Reply YES or NO to shift offers.';
+  } else {
+    appendObject_('ShiftTexts', { textId: Utilities.getUuid(), fromPhone: sdPhone_(from), caregiverId: g.caregiverId, body: String(text).slice(0, 500), understood: 'No', reply: '', receivedAt: new Date() });
+    return { handled: false, caregiver: g.name }; // let the agent's normal reply handle it
+  }
+  appendObject_('ShiftTexts', { textId: Utilities.getUuid(), fromPhone: sdPhone_(from), caregiverId: g.caregiverId, body: String(text).slice(0, 500), understood: p.kind, reply: reply, receivedAt: new Date() });
+  return { handled: true, reply: reply, caregiver: g.name };
+}
+function sdOutbox_(limit) {
+  var rows = sdRows_('ShiftOutbox').filter(function (m) { return m.status === 'Queued'; }).slice(0, limit);
+  rows.forEach(function (m) { careUpsert_('ShiftOutbox', 'msgId', { msgId: m.msgId, status: 'Sending' }); });
+  return { messages: rows.map(function (m) { return { msgId: m.msgId, to: m.toPhone, name: m.toName, body: m.body, purpose: m.purpose }; }) };
+}
+/** results: [{msgId, status:'Sent'|'NoThread'|'Failed', note}] */
+function sdMarkSent_(results) {
+  results.forEach(function (r) {
+    if (!r || !r.msgId) return;
+    var st = r.status === 'Sent' ? 'Sent' : (r.status === 'NoThread' ? 'Not sent - no text thread yet' : 'Failed');
+    careUpsert_('ShiftOutbox', 'msgId', { msgId: r.msgId, status: st, note: clean_(r.note), sentAt: r.status === 'Sent' ? new Date() : '' });
+  });
+  return { updated: results.length };
+}
+/** Hourly: anything stuck in "Sending" for over 30 minutes goes back to the queue once; offers older than OFFER_HOURS expire. */
+function sdHousekeeping() {
+  sdEnsure_();
+  var now = Date.now();
+  sdRows_('ShiftOutbox').filter(function (m) { return m.status === 'Sending' && now - new Date(m.createdAt).getTime() > 30 * 60000; })
+    .forEach(function (m) { careUpsert_('ShiftOutbox', 'msgId', { msgId: m.msgId, status: m.note === 'requeued' ? 'Failed' : 'Queued', note: 'requeued' }); });
+  sdRows_('ShiftOffers').filter(function (o) { return o.status === 'Offered' && now - new Date(o.sentAt).getTime() > SD.OFFER_HOURS * 3600000; })
+    .forEach(function (o) { careUpsert_('ShiftOffers', 'offerId', { offerId: o.offerId, status: 'Expired' }); });
+}
+function installShiftDeskTrigger() {
+  ScriptApp.getProjectTriggers().filter(function (t) { return t.getHandlerFunction() === 'sdHousekeeping'; }).forEach(function (t) { ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('sdHousekeeping').timeBased().everyHours(1).create();
+  return 'Shift Desk hourly check installed';
+}

@@ -1,0 +1,111 @@
+<script>
+/* ===== CCES Shift Desk UI (v1.0 · 2026-11-07) - additive. Adds "Shift Desk" to the office home and
+   "My shifts & availability" to the caregiver home. Wraps staffHome() and cgHome(); nothing is removed. ===== */
+var SDV = { board: null };
+(function(){
+  var prevStaff = staffHome;
+  staffHome = function(){
+    prevStaff();
+    var bar = document.querySelector('#app .card div div');
+    if (bar && !$('sdBtn')) { var b=document.createElement('button'); b.id='sdBtn'; b.className='gold'; b.style.marginLeft='6px'; b.textContent='Shift Desk'; b.onclick=sdOpen; bar.appendChild(b); }
+  };
+  var prevCg = cgHome;
+  cgHome = function(){
+    prevCg();
+    setTimeout(function(){
+      var app=$('app'); if (!app || $('sdCgCard')) return;
+      var d=document.createElement('div'); d.id='sdCgCard'; d.className='card'; d.innerHTML='<h2 style="margin-top:0">My shifts &amp; availability</h2><p class="muted">Loading…</p>';
+      app.insertBefore(d, app.firstChild);
+      sdCgLoad();
+    }, 300);
+  };
+})();
+function sdDays(){ return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']; }
+function sdT(t){ var m=String(t||'').match(/^(\d{1,2}):(\d{2})/); if(!m) return esc(t||''); var h=+m[1], ap=h>=12?'PM':'AM'; h=h%12||12; return h+(m[2]!=='00'?':'+m[2]:'')+' '+ap; }
+function sdD(d){ if(!d) return ''; var x=new Date(String(d).slice(0,10)+'T12:00:00'); return x.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' }); }
+function sdPillStatus(s){ var c={Open:'away',Offered:'away',Booked:'ok',Cancelled:'dead'}[s]||'away'; return '<span class="pill '+c+'">'+esc(s)+'</span>'; }
+
+/* ---------- office ---------- */
+function sdOpen(){ ccShell ? ccShell('Shift Desk') : ($('app').innerHTML='<div class="card"><h2>Shift Desk</h2><div id="ccBody"></div></div>'); call('sdBoard',S.staff).then(sdRender); }
+function sdRender(d){
+  SDV.board=d; var el=$('ccBody'); if(!el) return;
+  var agent = d.agentConnected ? '<span class="pill ok">Texting on</span> <span class="muted">Home care line agent last checked in '+esc(new Date(d.agentLastSeen).toLocaleString())+'</span>'
+    : '<span class="pill away">Texting not connected yet</span> <span class="muted">Offers go out by email and in the caregiver app. <a href="#" onclick="sdAgent();return false">Connect the home care line</a></span>';
+  var open = d.shifts.filter(function(s){ return s.status==='Open'||s.status==='Offered'; }), booked=d.shifts.filter(function(s){ return s.status==='Booked'; });
+  el.innerHTML =
+    '<div style="margin:6px 0 14px">'+agent+(d.queuedTexts?' · <b>'+d.queuedTexts+'</b> text(s) waiting to send':'')+'</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="gold" onclick="sdNewShift()">+ Open a shift</button><button class="ghost" onclick="sdAvailBoard()">Caregiver availability</button><button class="ghost" onclick="sdOpen()">Refresh</button></div>'+
+    '<h3>Needs a caregiver ('+open.length+')</h3>'+(open.length?open.map(sdShiftCard).join(''):'<p class="muted">No open shifts. Tap “Open a shift” when a caregiver calls out or a new visit is needed.</p>')+
+    '<h3>Booked ('+booked.length+')</h3>'+(booked.length?booked.map(sdShiftCard).join(''):'<p class="muted">Nothing booked yet.</p>');
+}
+function sdShiftCard(s){
+  var offers = (s.offers||[]).map(function(o){ return esc(o.name)+' <span class="muted">('+esc(o.status)+(o.channel?', '+esc(o.channel):'')+')</span>'; }).join(' · ');
+  return '<div class="card" style="border-left:5px solid '+(s.status==='Booked'?'#2e7d32':'#C9A961')+'">'+
+    '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b style="font-size:17px">'+esc(sdD(s.date))+' · '+sdT(s.start)+'–'+sdT(s.end)+'</b><br>'+esc(s.clientLabel)+' <span class="muted">'+esc(s.caseId)+(s.area?' · '+esc(s.area):'')+'</span></div><div>'+sdPillStatus(s.status)+'</div></div>'+
+    (s.notes?'<div class="muted" style="margin-top:4px">'+esc(s.notes)+'</div>':'')+
+    (s.status==='Booked'?'<div style="margin-top:6px"><b>'+esc(s.bookedName)+'</b> has it. Family told: '+esc(s.familyNotified||'—')+'</div>':'')+
+    (offers?'<div style="margin-top:6px;font-size:14px">Offered: '+offers+'</div>':'')+
+    '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">'+
+      (s.status!=='Booked'&&s.status!=='Cancelled'?'<button class="gold" onclick="sdMatch(\''+esc(s.shiftId)+'\')">Find caregivers</button>':'')+
+      (s.status!=='Cancelled'?'<button class="ghost" onclick="sdCancel(\''+esc(s.shiftId)+'\')">Cancel shift</button>':'')+
+    '</div></div>';
+}
+function sdNewShift(){
+  var d=SDV.board, today=new Date().toISOString().slice(0,10);
+  modal('<h2>Open a shift</h2><label>Client<select id="sd_case">'+d.clients.map(function(c){ return '<option value="'+esc(c.caseId)+'">'+esc(c.name)+' ('+esc(c.caseId)+')</option>'; }).join('')+'</select></label>'+
+    '<label>Date<input id="sd_date" type="date" value="'+today+'"></label><div style="display:flex;gap:8px"><label style="flex:1">Start<input id="sd_start" type="time" value="09:00"></label><label style="flex:1">End<input id="sd_end" type="time" value="13:00"></label></div>'+
+    '<label>Area (city — no street address in offers)<input id="sd_area" placeholder="Southfield"></label><label>Skills needed (optional, comma separated)<input id="sd_skills" placeholder="Hoyer lift, dementia"></label><label>Note for caregivers (optional)<input id="sd_notes" placeholder="Covering a call-out"></label>'+
+    '<div style="display:flex;gap:8px;margin-top:10px"><button class="gold" onclick="sdSaveShift(this)">Save shift</button><button class="ghost" onclick="closeModal()">Cancel</button></div>');
+}
+function sdSaveShift(b){ busy(b,true); call('sdSaveShift',S.staff,{caseId:val('sd_case'),date:val('sd_date'),start:val('sd_start'),end:val('sd_end'),area:val('sd_area'),skills:val('sd_skills'),notes:val('sd_notes')}).then(function(d){ closeModal(); toast('Shift opened'); sdRender(d); }).finally(function(){ busy(b,false); }); }
+function sdCancel(id){ if(!confirmInline('sdc'+id)) return; call('sdCancelShift',S.staff,id).then(function(d){ toast('Shift cancelled'); sdRender(d); }); }
+function confirmInline(k){ SDV.c=SDV.c||{}; if(SDV.c[k]&&Date.now()-SDV.c[k]<5000){ delete SDV.c[k]; return true; } SDV.c[k]=Date.now(); toast('Tap again to confirm'); return false; }
+function sdMatch(id){
+  modal('<h2>Finding caregivers…</h2><p class="muted">Checking availability, bookings and who knows this client.</p>');
+  call('sdMatchesFor',S.staff,id).then(function(list){
+    SDV.match={ id:id, list:list };
+    var avail=list.filter(function(m){ return m.available; });
+    $('modalBody').innerHTML='<h2>Caregivers for this shift</h2><p class="muted">'+avail.length+' available. Offers go by text (when connected) and email. First yes gets it.</p>'+
+      list.map(function(m,i){ return '<label style="display:flex;gap:10px;align-items:flex-start;border-bottom:1px solid #eee;padding:8px 0"><input type="checkbox" id="sdm'+i+'" '+(m.available?'checked':'')+' style="width:auto;margin-top:4px"><span><b>'+esc(m.name)+'</b> '+(m.available?'<span class="pill ok">Available</span>':'<span class="pill away">'+esc(m.why)+'</span>')+
+        (m.knowsClient?' <span class="pill ok">Knows client</span>':'')+(m.hasSkills?'':' <span class="pill away">Skills?</span>')+'<br><span class="muted">'+(m.phone?'Text ✓ ':'No phone ')+(m.email?'Email ✓':'No email')+'</span>'+
+        ' <a href="#" onclick="sdBook(\''+esc(m.caregiverId)+'\');return false">Book directly</a></span></label>'; }).join('')+
+      '<div style="display:flex;gap:8px;margin-top:12px"><button class="gold" onclick="sdSendOffers(this)">Send offers to checked</button><button class="ghost" onclick="closeModal()">Close</button></div>';
+  }).catch(function(){ closeModal(); });
+}
+function sdSendOffers(b){ var ids=SDV.match.list.filter(function(m,i){ return $('sdm'+i)&&$('sdm'+i).checked; }).map(function(m){ return m.caregiverId; }); if(!ids.length){ toast('Check at least one caregiver',true); return; }
+  busy(b,true); call('sdOffer',S.staff,SDV.match.id,ids).then(function(d){ closeModal(); toast('Offers sent to '+ids.length); sdRender(d); }).finally(function(){ busy(b,false); }); }
+function sdBook(cgId){ call('sdBookDirect',S.staff,SDV.match.id,cgId).then(function(d){ closeModal(); toast('Booked — family notified'); sdRender(d); }); }
+function sdAvailBoard(){
+  var d=SDV.board;
+  modal('<h2>Caregiver availability</h2><p class="muted">Caregivers can text the home care line, set it in their app, or you can type it here (example: “Mon Wed Fri 9am-5pm”, “11/14 off”, “weekends all day”).</p>'+
+    d.caregivers.map(function(g,i){ return '<div class="card"><b>'+esc(g.name)+'</b> <span class="muted">'+(g.hasPhone?'texts ✓':'no phone on file')+'</span><div style="margin:6px 0">'+
+      (g.availability.length?g.availability.map(function(a){ return '<span class="pill '+(/off/.test(a.kind)?'dead':'ok')+'" style="margin:2px">'+(a.kind.indexOf('weekly')===0?sdDays()[+a.day]+'s':esc(sdD(a.date)))+(/off/.test(a.kind)?' off':' '+sdT(a.start)+'–'+sdT(a.end))+' <a href="#" onclick="sdDelAvail(\''+esc(a.availId)+'\');return false" title="Remove" style="color:inherit">✕</a></span>'; }).join(''):'<span class="muted">Nothing on file</span>')+
+      '</div><div style="display:flex;gap:6px"><input id="sda'+i+'" placeholder="Mon-Fri 8am-4pm"><button class="ghost" onclick="sdAddAvail('+i+',this)">Save</button></div></div>'; }).join('')+
+    '<button class="ghost" onclick="closeModal()">Close</button>');
+}
+function sdAddAvail(i,b){ var g=SDV.board.caregivers[i]; busy(b,true); call('sdSaveAvailability',S.staff,g.caregiverId,val('sda'+i)).then(function(d){ SDV.board=d; toast('Saved'); sdAvailBoard(); }).finally(function(){ busy(b,false); }); }
+function sdDelAvail(id){ call('sdDeleteAvailability',S.staff,id).then(function(d){ SDV.board=d; sdAvailBoard(); }); }
+function sdAgent(){
+  call('sdAgentSetup',S.staff).then(function(r){
+    modal('<h2>Connect the home care line</h2><p>Texts to '+esc(SDV.board.linePhone)+' arrive in the Crisp Cares (crispcareses) Google Voice account. Its agent passes caregiver texts here and sends the replies and offers this desk queues.</p>'+
+      '<p class="muted">This is set up for you by Claude in the agent project. These two values go into that project’s Script Properties:</p>'+
+      '<label>SHIFT_DESK_URL<input readonly value="'+esc(r.url)+'"></label><label>SHIFT_DESK_KEY<input readonly value="'+esc(r.key)+'"></label><button class="ghost" onclick="closeModal()">Close</button>');
+  });
+}
+
+/* ---------- caregiver ---------- */
+function sdCgLoad(){ call('sdCaregiverView',S.cg).then(sdCgRender).catch(function(){}); }
+function sdCgRender(v){
+  var el=$('sdCgCard'); if(!el) return;
+  el.innerHTML='<h2 style="margin-top:0">My shifts &amp; availability</h2>'+
+    (v.offers.length?'<h3>Open shifts for you</h3>'+v.offers.map(function(o){ return '<div class="card" style="border-left:5px solid #C9A961"><b>'+esc(o.when)+'</b>'+(o.area?' · '+esc(o.area):'')+(o.notes?'<div class="muted">'+esc(o.notes)+'</div>':'')+
+      '<div style="display:flex;gap:8px;margin-top:8px"><button class="gold" onclick="sdCgAnswer(\''+esc(o.shiftId)+'\',true,this)">Yes, I’ll take it</button><button class="ghost" onclick="sdCgAnswer(\''+esc(o.shiftId)+'\',false,this)">No</button></div></div>'; }).join(''):'')+
+    (v.booked.length?'<h3>My booked shifts</h3>'+v.booked.map(function(b){ return '<div>✅ <b>'+esc(b.when)+'</b> — '+esc(b.client)+(b.area?' · '+esc(b.area):'')+'</div>'; }).join(''):'')+
+    '<h3>When I can work</h3>'+(v.availability.length?v.availability.map(function(a){ return '<span class="pill ok" style="margin:2px">'+esc(a.label)+' <a href="#" onclick="sdCgDel(\''+esc(a.availId)+'\');return false" style="color:inherit">✕</a></span>'; }).join(''):'<p class="muted">Nothing saved yet.</p>')+
+    '<div style="display:flex;gap:6px;margin-top:8px"><input id="sdCgIn" placeholder="Mon Wed Fri 9am-5pm"><button class="gold" onclick="sdCgSave(this)">Save</button></div>'+
+    '<p class="muted" style="font-size:13px">You can also text it to '+esc(v.linePhone)+', like “weekends all day” or “11/14 off”.</p>';
+}
+function sdCgSave(b){ busy(b,true); call('sdCaregiverSetAvailability',S.cg,val('sdCgIn')).then(function(v){ toast('Saved'); sdCgRender(v); }).finally(function(){ busy(b,false); }); }
+function sdCgDel(id){ call('sdCaregiverDeleteAvailability',S.cg,id).then(sdCgRender); }
+function sdCgAnswer(id,yes,b){ busy(b,true); call('sdCaregiverAnswer',S.cg,id,yes).then(function(v){ toast(yes?'You got the shift!':'Thanks for letting us know'); sdCgRender(v); }).finally(function(){ busy(b,false); }); }
+</script>
