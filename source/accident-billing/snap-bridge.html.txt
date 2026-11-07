@@ -1,0 +1,28 @@
+<script>
+/* ===== Offline copy bridge (2026-11-07) - additive. Inside the installed app, each screen you open is handed to the app
+   so it can show it with no signal. Nothing is sent anywhere else; passwords, codes and PINs are never included. ===== */
+(function(){
+  var inApp = false; try { inApp = window.top !== window.self; } catch (e) { inApp = true; }
+  if (!inApp) return;
+  var timer = null, last = '';
+  function css(){ return [].map.call(document.querySelectorAll('style'), function(s){ return s.textContent; }).join('\n'); }
+  function title(){ var h = document.querySelector('#app h2, #app h1, main h2, h2, h1'); var t = (h && h.textContent.trim()) || document.title || 'Saved screen'; return t.replace(/\s+/g, ' ').slice(0, 80); }
+  function snap(){
+    try {
+      var c = document.body.cloneNode(true);
+      [].forEach.call(c.querySelectorAll('script, iframe, noscript, .modal-bg, .modal, #toast, .toast'), function(n){ n.parentNode && n.parentNode.removeChild(n); });
+      [].forEach.call(c.querySelectorAll('input, textarea'), function(i){
+        if (/password|pin|code|otp|passcode/i.test((i.type || '') + ' ' + (i.name || '') + ' ' + (i.id || '') + ' ' + (i.placeholder || ''))) { i.removeAttribute('value'); i.textContent = ''; }
+        else if (i.tagName === 'TEXTAREA') i.textContent = i.value; else i.setAttribute('value', i.value || '');
+      });
+      var html = c.innerHTML;
+      if (html === last || html.length < 40) return; last = html;
+      var t = title();
+      window.top.postMessage({ cces: 'snap', key: t, title: t, html: html, css: css() }, '*');
+    } catch (e) {}
+  }
+  new MutationObserver(function(){ clearTimeout(timer); timer = setTimeout(snap, 1500); }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  setTimeout(snap, 2500);
+  if (typeof signOut === 'function') { var so = signOut; signOut = function(){ try { window.top.postMessage({ cces: 'signout' }, '*'); } catch (e) {} return so.apply(this, arguments); }; }
+})();
+</script>

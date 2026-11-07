@@ -1,0 +1,189 @@
+/* =====================================================================================
+ * CLAIM BOARD + PATIENT COST ESTIMATE (v1.0 · 2026-11-07) — additive file.
+ *
+ * Claim board: every claim in one column per stage (Draft → Needs fixes → Ready → Submitted → Partly paid → Paid,
+ * plus Denied / Appeal and On hold), with what was billed, paid and still owed, how many days it has been open,
+ * and the next follow-up date. Actions use the existing functions (validateClaim, submitClaim, postPayment, saveDenial).
+ *
+ * Patient cost estimate: before or during care, shows what the auto insurer is expected to pay and what the
+ * patient may owe, using the PIP coverage level, benefits left, the Michigan no-fault fee limit and any coordinated
+ * health plan deductible/copay. It is an ESTIMATE; every figure is shown with how it was worked out.
+ * ===================================================================================== */
+var MB_BOARD_TABLES = {
+  MB_Estimates: ['estimate_id', 'case_id', 'patient_id', 'insurer_id', 'coverage_level', 'benefits_remaining', 'visits', 'lines_json',
+    'fee_limit_pct', 'cpi_factor', 'coordinated', 'deductible_remaining', 'copay_per_visit', 'est_billed', 'est_allowed', 'est_insurer',
+    'est_patient', 'est_not_billable', 'notes', 'emailed_to', 'emailed_at', 'created_by', 'created_at', 'updated_at']
+};
+var MB_COVERAGE = [
+  { key: 'Unlimited', limit: null },
+  { key: '$500,000', limit: 500000 },
+  { key: '$250,000', limit: 250000 },
+  { key: '$250,000 with exclusions', limit: 250000 },
+  { key: '$50,000 (Medicaid)', limit: 50000 },
+  { key: 'Opted out (Medicare / qualified health plan)', limit: 0 },
+  { key: 'No PIP coverage found', limit: 0 }
+];
+function mbBoardEnsure_() {
+  var p = PropertiesService.getScriptProperties();
+  if (p.getProperty('MB_BOARD_V') === '1.0') return;
+  var ss = db_(); Object.keys(MB_BOARD_TABLES).forEach(function (n) { ensureSheet_(ss, n, MB_BOARD_TABLES[n]); });
+  p.setProperty('MB_BOARD_V', '1.0');
+}
+function mbDays_(from) { var t = new Date(String(from || '').replace(' ', 'T')).getTime(); return isNaN(t) ? '' : Math.max(0, Math.floor((Date.now() - t) / 864e5)); }
+
+/* ---------------- claim board ---------------- */
+function mbClaimBoard() {
+  mbGuard_(); mbBoardEnsure_();
+  var claims = listRows_('Claims'), pats = {}, ins = {}, cases = {};
+  listRows_('Patients').forEach(function (p) { pats[p.patient_id] = p; });
+  listRows_('Insurance_Companies').forEach(function (i) { ins[i.insurer_id] = i; });
+  listRows_('PIP_Cases').forEach(function (c) { cases[c.case_id] = c; });
+  var lines = listRows_('Claim_Lines'), subs = listRows_('Submissions'), fu = listRows_('AR_Followups').filter(function (f) { return f.status !== 'Done'; });
+  var dens = listRows_('Denials'), apps = listRows_('Appeals');
+  var cols = { 'Draft': [], 'Needs fixes': [], 'Ready': [], 'Submitted': [], 'Partly paid': [], 'Denied / Appeal': [], 'Paid': [], 'On hold': [] };
+  claims.forEach(function (c) {
+    var p = pats[c.patient_id] || {}, i = ins[c.insurer_id] || {}, k = cases[c.case_id] || {};
+    var myLines = lines.filter(function (l) { return l.claim_id === c.claim_id; });
+    var dos = myLines.map(function (l) { return String(l.date_of_service).slice(0, 10); }).filter(String).sort();
+    var sub = subs.filter(function (s) { return s.claim_id === c.claim_id; }).sort(function (a, b) { return String(b.submitted_at).localeCompare(String(a.submitted_at)); })[0];
+    var next = fu.filter(function (f) { return f.claim_id === c.claim_id; }).map(function (f) { return String(f.due_date).slice(0, 10); }).sort()[0] || (sub && sub.followup_date ? String(sub.followup_date).slice(0, 10) : '');
+    var den = dens.filter(function (d) { return d.claim_id === c.claim_id && d.status !== 'Closed'; })[0];
+    var ap = apps.filter(function (a) { return a.claim_id === c.claim_id && a.status !== 'Closed'; })[0];
+    var billed = num_(c.total_billed), paid = num_(c.total_paid), bal = num_(c.balance);
+    var col;
+    if (c.status === 'On Hold') col = 'On hold';
+    else if (den || ap) col = 'Denied / Appeal';
+    else if (paid > 0 && bal <= 0.005) col = 'Paid';
+    else if (paid > 0) col = 'Partly paid';
+    else if (c.status === 'Submitted') col = 'Submitted';
+    else if (c.status === 'Ready for Review') col = 'Ready';
+    else if (c.status === 'Validation Required') col = 'Needs fixes';
+    else col = 'Draft';
+    cols[col].push({
+      claim_id: c.claim_id, status: c.status, patient: [p.first_name, p.last_name].filter(String).join(' ') || c.patient_id, insurer: i.name || c.insurer_id,
+      claim_number: k.claim_number || '', case_id: c.case_id, dos: dos.length ? (dos[0] === dos[dos.length - 1] ? dos[0] : dos[0] + ' – ' + dos[dos.length - 1]) : '',
+      lines: myLines.length, billed: billed, paid: paid, balance: bal, age_days: mbDays_(sub ? sub.submitted_at : c.created_at), submitted: sub ? String(sub.submitted_at).slice(0, 10) : '',
+      next_followup: next, overdue: next && next < Utilities.formatDate(new Date(), APP.TZ, 'yyyy-MM-dd'),
+      denial: den ? (den.category + ' — ' + den.workflow) : '', appeal: ap ? (ap.status + (ap.due_date ? ' · due ' + String(ap.due_date).slice(0, 10) : '')) : ''
+    });
+  });
+  var totals = { billed: 0, paid: 0, balance: 0, overdue: 0, over90: 0 };
+  Object.keys(cols).forEach(function (k) { cols[k].forEach(function (x) { totals.billed += x.billed; totals.paid += x.paid; if (k !== 'Paid') totals.balance += x.balance; if (x.overdue) totals.overdue++; if (x.age_days !== '' && x.age_days > 90 && k !== 'Paid') totals.over90++; }); });
+  return { columns: cols, totals: totals, insurers: listRows_('Insurance_Companies').map(function (i) { return { insurer_id: i.insurer_id, name: i.name }; }) };
+}
+function mbAddFollowup(d) {
+  mbGuard_(); d = d || {}; requireFields_(d, ['claim_id', 'due_date']);
+  var row = genericSave_('AR_Followups', 'followup_id', 'FU', { claim_id: d.claim_id, due_date: d.due_date, status: 'Open', assigned_to: (MB.user && MB.user.email) || '', notes: String(d.notes || '').slice(0, 1000) });
+  return row;
+}
+function mbSetClaimHold(d) {
+  mbGuard_(); d = d || {};
+  var c = findById_('Claims', 'claim_id', d.claim_id); if (!c) throw new Error('Claim not found.');
+  var before = Object.assign({}, c);
+  c.status = d.hold ? 'On Hold' : 'Draft'; c.updated_at = now_(); upsert_('Claims', 'claim_id', c);
+  audit_(d.hold ? 'HOLD_CLAIM' : 'RELEASE_CLAIM', 'Claims', c.claim_id, before, c);
+  return c;
+}
+
+/* ---------------- patient cost estimate ---------------- */
+function mbEstimateSetup() {
+  mbGuard_(); mbBoardEnsure_();
+  var procs = {}; listRows_('Procedure_Codes').forEach(function (p) { procs[p.procedure_id] = p; });
+  var today = Utilities.formatDate(new Date(), APP.TZ, 'yyyy-MM-dd');
+  var charges = listRows_('Charge_Master').filter(function (c) { return String(c.active) !== 'false' && (!c.end_date || String(c.end_date) >= today); })
+    .map(function (c) { var p = procs[c.procedure_id] || {}; return { code: p.code || c.procedure_id, description: p.description || '', unit_basis: p.unit_basis || '', charge: num_(c.amount), charge_type: c.charge_type || '' }; });
+  var pats = {}; listRows_('Patients').forEach(function (p) { pats[p.patient_id] = p; });
+  var ins = {}; listRows_('Insurance_Companies').forEach(function (i) { ins[i.insurer_id] = i.name; });
+  var billedByCase = {}; listRows_('Claims').forEach(function (c) { billedByCase[c.case_id] = (billedByCase[c.case_id] || 0) + num_(c.total_paid); });
+  var cases = listRows_('PIP_Cases').filter(function (c) { return c.case_status !== 'Closed'; }).map(function (c) {
+    var p = pats[c.patient_id] || {};
+    return { case_id: c.case_id, patient_id: c.patient_id, patient: [p.first_name, p.last_name].filter(String).join(' '), email: p.email || '', insurer_id: c.insurer_id, insurer: ins[c.insurer_id] || '', claim_number: c.claim_number || '', paid_so_far: billedByCase[c.case_id] || 0 };
+  });
+  var saved = listRows_('MB_Estimates').slice(-30).reverse();
+  return { cases: cases, charges: charges, coverage: MB_COVERAGE.map(function (x) { return x.key; }), saved: saved,
+    defaults: { fee_limit_pct: 52.5, cpi_factor: 1, note: 'Michigan MCL 500.3157(7): when Medicare has no amount for a service, the most PIP pays is a set percentage (52.5% for care after July 1, 2023) of the provider\'s average charge on January 1, 2019, adjusted each year under subsection (9). Confirm the percentage, the yearly adjustment and whether Medicare lists an amount for each code before relying on this.' } };
+}
+function mbCalcEstimate_(e) {
+  var cov = MB_COVERAGE.filter(function (x) { return x.key === e.coverage_level; })[0] || MB_COVERAGE[0];
+  var visits = Math.max(1, Math.round(num_(e.visits)));
+  var pct = num_(e.fee_limit_pct) || 52.5, cpi = num_(e.cpi_factor) || 1;
+  var lines = (e.lines || []).filter(function (l) { return l && (l.code || l.description); }).map(function (l) {
+    var units = Math.max(0, num_(l.units)), charge = num_(l.charge), base2019 = num_(l.charge_2019);
+    var limitPerUnit = base2019 > 0 ? Math.round(base2019 * pct / 100 * cpi * 100) / 100 : null;
+    var allowedUnit = limitPerUnit === null ? charge : Math.min(charge, limitPerUnit);
+    return { code: String(l.code || ''), description: String(l.description || ''), units: units, charge: charge, charge_2019: base2019 || '', limit_per_unit: limitPerUnit, allowed_per_unit: allowedUnit,
+      billed_per_visit: Math.round(units * charge * 100) / 100, allowed_per_visit: Math.round(units * allowedUnit * 100) / 100, limit_known: limitPerUnit !== null };
+  });
+  var billed = lines.reduce(function (s, l) { return s + l.billed_per_visit; }, 0) * visits;
+  var allowed = lines.reduce(function (s, l) { return s + l.allowed_per_visit; }, 0) * visits;
+  var steps = [];
+  steps.push(visits + ' visit(s) × $' + (billed / visits).toFixed(2) + ' billed per visit = $' + billed.toFixed(2) + ' billed.');
+  if (lines.some(function (l) { return l.limit_known; })) steps.push('Fee limit: ' + pct + '% of the January 1, 2019 average charge' + (cpi !== 1 ? ' × ' + cpi + ' yearly adjustment' : '') + ' → $' + allowed.toFixed(2) + ' allowed.');
+  else steps.push('No January 1, 2019 charge entered, so the full charge is used as the allowed amount. Add the 2019 charge to apply the fee limit.');
+  var notBillable = Math.max(0, billed - allowed);
+  var patient = 0, insurer = 0, healthPlan = 0;
+  if (cov.limit === 0) {
+    patient = 0; insurer = 0;
+    steps.push(cov.key + ': the auto policy is not expected to pay. Bill the patient\'s health plan or Medicare first; the patient\'s share depends on that plan.');
+  } else {
+    var remaining = cov.limit === null ? Infinity : (e.benefits_remaining === '' || e.benefits_remaining === undefined || e.benefits_remaining === null ? cov.limit : Math.max(0, num_(e.benefits_remaining)));
+    var coordinated = e.coordinated === 'Yes';
+    var forPip = allowed;
+    if (coordinated) {
+      var ded = Math.min(Math.max(0, num_(e.deductible_remaining)), allowed), cop = Math.max(0, num_(e.copay_per_visit)) * visits;
+      var left = Math.min(allowed, ded + cop);
+      healthPlan = Math.max(0, allowed - left);
+      forPip = left;
+      steps.push('Coordinated policy: the health plan pays first (about $' + healthPlan.toFixed(2) + ' if it covers massage therapy). The auto insurer then picks up what is left, such as the deductible ($' + ded.toFixed(2) + ') and copays ($' + cop.toFixed(2) + '). If the health plan does not cover massage, the auto insurer is first in line.');
+    }
+    insurer = Math.min(forPip, remaining);
+    var overLimit = Math.max(0, forPip - insurer);
+    patient = overLimit;
+    steps.push('PIP coverage ' + cov.key + (cov.limit === null ? '' : ', about $' + (remaining === Infinity ? 0 : remaining).toFixed(2) + ' left') + ' → insurer expected to pay $' + insurer.toFixed(2) + '.');
+    if (overLimit > 0) steps.push('$' + overLimit.toFixed(2) + ' is over the remaining PIP benefits and may become the patient\'s responsibility.');
+  }
+  if (notBillable > 0) steps.push('$' + notBillable.toFixed(2) + ' is the difference between the full charge and the fee limit. It is shown separately; check before billing any of it to the patient.');
+  return { lines: lines, visits: visits, billed: round2_(billed), allowed: round2_(allowed), insurer: round2_(insurer), health_plan: round2_(healthPlan), patient: round2_(patient), not_billable: round2_(notBillable), steps: steps, coverage: cov.key };
+}
+function round2_(n) { return Math.round(n * 100) / 100; }
+function mbSaveEstimate(e) {
+  mbGuard_(); mbBoardEnsure_(); e = e || {};
+  var r = mbCalcEstimate_(e);
+  if (!e.preview) {
+    var c = e.case_id ? findById_('PIP_Cases', 'case_id', e.case_id) : null;
+    var row = genericSave_('MB_Estimates', 'estimate_id', 'EST', {
+      estimate_id: e.estimate_id || '', case_id: e.case_id || '', patient_id: c ? c.patient_id : '', insurer_id: c ? c.insurer_id : '', coverage_level: r.coverage,
+      benefits_remaining: e.benefits_remaining === undefined ? '' : e.benefits_remaining, visits: r.visits, lines_json: JSON.stringify(r.lines), fee_limit_pct: e.fee_limit_pct, cpi_factor: e.cpi_factor,
+      coordinated: e.coordinated || 'No', deductible_remaining: e.deductible_remaining || 0, copay_per_visit: e.copay_per_visit || 0,
+      est_billed: r.billed, est_allowed: r.allowed, est_insurer: r.insurer, est_patient: r.patient, est_not_billable: r.not_billable, notes: String(e.notes || '').slice(0, 1000),
+      created_by: (MB.user && MB.user.email) || userEmail_() });
+    r.estimate_id = row.estimate_id;
+  }
+  return r;
+}
+/** Sends the patient a branded estimate with the steps. Staff-initiated only. */
+function mbEmailEstimate(d) {
+  mbGuard_(); d = d || {};
+  var est = findById_('MB_Estimates', 'estimate_id', d.estimate_id); if (!est) throw new Error('Save the estimate first.');
+  var to = String(d.email || '').trim(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw new Error('Enter the patient\'s email.');
+  var c = est.case_id ? findById_('PIP_Cases', 'case_id', est.case_id) : null, p = c ? findById_('Patients', 'patient_id', c.patient_id) : null;
+  var r = mbCalcEstimate_({ coverage_level: est.coverage_level, benefits_remaining: est.benefits_remaining, visits: est.visits, lines: JSON.parse(est.lines_json || '[]'),
+    fee_limit_pct: est.fee_limit_pct, cpi_factor: est.cpi_factor, coordinated: est.coordinated, deductible_remaining: est.deductible_remaining, copay_per_visit: est.copay_per_visit });
+  var B = MB_ACCESS.BRAND, money = function (n) { return '$' + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
+  var row = function (k, v, strong) { return '<tr><td style="padding:8px 0;border-bottom:1px solid #eee;color:#55606e">' + k + '</td><td style="padding:8px 0;border-bottom:1px solid #eee;text-align:right;' + (strong ? 'font-weight:bold;color:' + B.navy + ';font-size:18px' : '') + '">' + v + '</td></tr>'; };
+  var html = '<div style="background:' + B.cream + ';padding:16px 0;font-family:Arial,Helvetica,sans-serif;color:#1d2430"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e3ddcf">' +
+    '<tr><td style="padding:18px 22px;border-bottom:3px solid ' + B.gold + ';font-family:Georgia,serif;font-size:22px;font-weight:bold;color:' + B.navy + '">Accident<span style="color:' + B.gold + '"> Billing</span></td></tr>' +
+    '<tr><td style="background:' + B.navy + ';color:#fff;padding:18px 22px;font-family:Georgia,serif;font-size:22px;font-weight:bold">Your treatment cost estimate</td></tr>' +
+    '<tr><td style="padding:22px;font-size:16px;line-height:1.6"><p style="margin:0 0 12px">Hello' + (p && p.first_name ? ' ' + String(p.first_name).replace(/[<>&"]/g, '') : '') + ',</p>' +
+    '<p style="margin:0 0 12px">Here is what we expect for ' + r.visits + ' massage therapy visit(s) under your auto insurance (no-fault/PIP) claim. These are estimates, not a bill.</p>' +
+    '<table width="100%" style="border-collapse:collapse;margin:8px 0 14px">' + row('Total charges', money(r.billed)) + row('Amount allowed by Michigan\'s no-fault fee limit', money(r.allowed)) +
+    (r.health_plan ? row('Expected from your health plan', money(r.health_plan)) : '') + row('Expected from your auto insurer', money(r.insurer)) + row('You may owe (estimate)', money(r.patient), true) + '</table>' +
+    '<div style="background:#f7f8fa;border-radius:10px;padding:12px 14px;font-size:14px;color:#3a4552"><b>How we worked this out</b><br>' + r.steps.map(function (s) { return '• ' + String(s).replace(/[<>&]/g, ''); }).join('<br>') + '</div>' +
+    '<p style="margin:14px 0 0;font-size:14px">Your final amount depends on what your insurer approves. If anything here looks wrong, reply in writing and we will correct it in writing.</p></td></tr>' +
+    '<tr><td style="background:#f7f8fa;padding:14px 22px;font-size:11px;line-height:1.5;color:#55606e">This estimate was prepared with an assistant used as an ADA accommodation (42 U.S.C. § 12101 et seq.); the practice reviews it and remains responsible for it. Your health information is protected under HIPAA (45 CFR Parts 160 and 164) and is shared only as needed for your care and billing.</td></tr></table></div>';
+  MailApp.sendEmail({ to: to, subject: 'Your treatment cost estimate', name: B.name, htmlBody: html,
+    body: 'Treatment cost estimate (' + r.visits + ' visits): charges ' + money(r.billed) + '; allowed ' + money(r.allowed) + '; expected from insurer ' + money(r.insurer) + '; you may owe ' + money(r.patient) + '. This is an estimate, not a bill. ' + r.steps.join(' ') });
+  upsert_('MB_Estimates', 'estimate_id', { estimate_id: est.estimate_id, emailed_to: to, emailed_at: now_(), updated_at: now_() });
+  audit_('EMAIL_ESTIMATE', 'MB_Estimates', est.estimate_id, null, { to: to });
+  return { ok: true };
+}

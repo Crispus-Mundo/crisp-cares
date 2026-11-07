@@ -1,0 +1,143 @@
+/* =====================================================================================
+ * ACCESS (v1.0 · 2026-11-07) — additive file. Adds a sign-in to the billing app.
+ *
+ * Why: the web app is open to "Anyone", and every screen and table could be read without signing in.
+ * Now every app call goes through mbCall(token, fn, arg), which checks a signed-in device first.
+ * Calls made straight to the old functions from a web page are refused (mbGuard_), while the owner can still
+ * run setup functions from the script editor.
+ *
+ * Sign-in: email + 6-digit code (sent in the branded one-time-passcode email). The device stays signed in
+ * for 90 days until Sign out. Several people can be saved on one device and switched between.
+ * Only emails on the staff list can sign in. The owner (the account that owns this script) is always allowed.
+ * ===================================================================================== */
+var MB = { ok: false, user: null };
+var MB_ACCESS = {
+  VERSION: 'access v1.0 (2026-11-07)',
+  DEVICE_DAYS: 90,
+  CODE_MINUTES: 10,
+  BRAND: { name: 'Accident Billing', org: 'Massage Auto Insurance Billing OS', navy: '#1B2951', gold: '#C9A961', cream: '#FAF7F0' },
+  ALLOWED: ['getBootstrap', 'setupSystem', 'savePatient', 'savePIPCase', 'saveInsurer', 'saveAppointment', 'saveTreatmentEncounter',
+    'saveTreatmentNote', 'saveCredential', 'saveInsuranceRequirement', 'createClaimFromEncounter', 'saveClaimLine', 'validateClaim',
+    'submitClaim', 'postPayment', 'saveDenial', 'validateAppeal', 'getOpenAlerts', 'getCase', 'getTable',
+    'mbClaimBoard', 'mbAddFollowup', 'mbSetClaimHold', 'mbEstimateSetup', 'mbSaveEstimate', 'mbEmailEstimate', 'mbStaff', 'mbSaveStaff']
+};
+var MB_TABLES = {
+  MB_Staff: ['staff_id', 'email', 'name', 'role', 'active', 'created_at', 'updated_at'],
+  MB_Devices: ['device_id', 'email', 'token_hash', 'label', 'created_at', 'last_used', 'expires', 'revoked'],
+  MB_Codes: ['code_id', 'email', 'code_hash', 'expires', 'used', 'created_at']
+};
+
+function mbEnsure_() {
+  var p = PropertiesService.getScriptProperties();
+  if (p.getProperty('MB_ACCESS_V') === MB_ACCESS.VERSION) return;
+  var ss = db_();
+  Object.keys(MB_TABLES).forEach(function (n) { ensureSheet_(ss, n, MB_TABLES[n]); });
+  if (!listRows_('MB_Staff').length) {
+    var owner = Session.getEffectiveUser().getEmail();
+    upsert_('MB_Staff', 'staff_id', { staff_id: 'ST-1', email: owner, name: 'Owner', role: 'Owner', active: 'Yes', created_at: now_(), updated_at: now_() });
+  }
+  p.setProperty('MB_ACCESS_V', MB_ACCESS.VERSION);
+}
+function mbHash_(s) { return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(s), Utilities.Charset.UTF_8)); }
+function mbOwner_() { return String(Session.getEffectiveUser().getEmail() || '').toLowerCase(); }
+function mbStaffByEmail_(email) {
+  email = String(email || '').trim().toLowerCase();
+  if (!email) return null;
+  var s = listRows_('MB_Staff').filter(function (x) { return String(x.email).toLowerCase() === email && x.active !== 'No'; })[0];
+  if (s) return s;
+  return email === mbOwner_() ? { staff_id: 'OWNER', email: email, name: 'Owner', role: 'Owner', active: 'Yes' } : null;
+}
+
+/** Old functions call this first. Inside mbCall it passes; from the script editor (owner) it passes; otherwise refused. */
+function mbGuard_() {
+  if (MB.ok) return;
+  var active = '';
+  try { active = String(Session.getActiveUser().getEmail() || '').toLowerCase(); } catch (e) {}
+  if (active && active === mbOwner_()) return;
+  throw new Error('SIGNED_OUT: Please sign in.');
+}
+
+/* ---------------- sign in ---------------- */
+function mbRequestCode(email) {
+  mbEnsure_();
+  email = String(email || '').trim().toLowerCase();
+  var s = mbStaffByEmail_(email);
+  // Same answer either way so the screen does not reveal who is on the staff list.
+  if (!s) return { ok: true };
+  var code = String(Math.floor(100000 + Math.random() * 900000));
+  upsert_('MB_Codes', 'code_id', { code_id: Utilities.getUuid(), email: email, code_hash: mbHash_(email + ':' + code), expires: new Date(Date.now() + MB_ACCESS.CODE_MINUTES * 60000).toISOString(), used: '', created_at: now_() });
+  MailApp.sendEmail({ to: email, subject: MB_ACCESS.BRAND.name + ': your sign-in code ' + code, name: MB_ACCESS.BRAND.name,
+    htmlBody: mbCodeEmail_(s.name, code), body: 'Your ' + MB_ACCESS.BRAND.name + ' sign-in code is ' + code + '. It expires in ' + MB_ACCESS.CODE_MINUTES + ' minutes and works once. If you did not ask for it, ignore this email.' });
+  return { ok: true };
+}
+function mbVerifyCode(email, code, label) {
+  mbEnsure_();
+  email = String(email || '').trim().toLowerCase(); code = String(code || '').replace(/\D/g, '');
+  var s = mbStaffByEmail_(email); if (!s) throw new Error('That code is not right or has expired.');
+  var h = mbHash_(email + ':' + code), now = Date.now();
+  var row = listRows_('MB_Codes').filter(function (c) { return c.email === email && c.code_hash === h && !c.used && new Date(c.expires).getTime() > now; })[0];
+  if (!row) throw new Error('That code is not right or has expired.');
+  upsert_('MB_Codes', 'code_id', { code_id: row.code_id, used: now_() });
+  var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  upsert_('MB_Devices', 'device_id', { device_id: Utilities.getUuid(), email: email, token_hash: mbHash_(token), label: String(label || '').slice(0, 80),
+    created_at: now_(), last_used: now_(), expires: new Date(now + MB_ACCESS.DEVICE_DAYS * 864e5).toISOString(), revoked: '' });
+  return { token: token, email: email, name: s.name || email, role: s.role || 'Staff' };
+}
+function mbWho_(token) {
+  if (!token) return null;
+  var h = mbHash_(token), now = Date.now();
+  var d = listRows_('MB_Devices').filter(function (x) { return x.token_hash === h && !x.revoked && new Date(x.expires).getTime() > now; })[0];
+  if (!d) return null;
+  var s = mbStaffByEmail_(d.email); if (!s) return null;
+  if (now - new Date(d.last_used).getTime() > 3600000) upsert_('MB_Devices', 'device_id', { device_id: d.device_id, last_used: now_() });
+  return { email: d.email, name: s.name || d.email, role: s.role || 'Staff', deviceId: d.device_id };
+}
+function mbWhoAmI(token) { mbEnsure_(); var u = mbWho_(token); if (!u) throw new Error('SIGNED_OUT: Please sign in.'); return u; }
+function mbSignOut(token) {
+  mbEnsure_(); var u = mbWho_(token); if (u) upsert_('MB_Devices', 'device_id', { device_id: u.deviceId, revoked: now_() });
+  return { ok: true };
+}
+
+/** Every screen action comes through here. */
+function mbCall(token, fn, arg) {
+  mbEnsure_();
+  var u = mbWho_(token);
+  if (!u) throw new Error('SIGNED_OUT: Please sign in.');
+  if (MB_ACCESS.ALLOWED.indexOf(fn) < 0 || typeof this[fn] !== 'function') throw new Error('Not available: ' + fn);
+  if (fn === 'setupSystem' && u.role !== 'Owner') throw new Error('Only the owner can run setup.');
+  MB.ok = true; MB.user = u;
+  try { return JSON.parse(JSON.stringify(this[fn](arg), function (k, v) { return v instanceof Date ? Utilities.formatDate(v, APP.TZ, "yyyy-MM-dd'T'HH:mm:ss") : v; })); }
+  finally { MB.ok = false; MB.user = null; }
+}
+
+/* ---------------- staff list (owner) ---------------- */
+function mbStaff() { mbGuard_(); return listRows_('MB_Staff'); }
+function mbSaveStaff(s) {
+  mbGuard_();
+  if (MB.user && MB.user.role !== 'Owner') throw new Error('Only the owner can change the staff list.');
+  s = s || {}; var email = String(s.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email.');
+  var ex = listRows_('MB_Staff').filter(function (x) { return String(x.email).toLowerCase() === email; })[0];
+  upsert_('MB_Staff', 'staff_id', { staff_id: ex ? ex.staff_id : 'ST-' + Utilities.getUuid().slice(0, 8), email: email, name: String(s.name || '').slice(0, 80),
+    role: s.role === 'Owner' ? 'Owner' : (s.role || 'Staff'), active: s.active === 'No' ? 'No' : 'Yes', created_at: ex ? ex.created_at : now_(), updated_at: now_() });
+  return listRows_('MB_Staff');
+}
+
+/* ---------------- branded one-time-passcode email ---------------- */
+function mbCodeEmail_(name, code) {
+  var B = MB_ACCESS.BRAND, first = String(name || '').split(' ')[0] || 'there';
+  var url = ScriptApp.getService().getUrl() || '';
+  return '<div style="background:#f2f4f7;margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;color:#1d2430">' +
+    '<div style="display:none;max-height:0;overflow:hidden">Your ' + B.name + ' sign-in code is ' + code + '</div>' +
+    '<div style="background:#e9e3d3;font-size:12px;color:#55606e;padding:8px 16px;text-align:center">This one-time passcode helps keep patient billing records secure.</div>' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff">' +
+    '<tr><td style="padding:18px 24px;border-bottom:3px solid ' + B.gold + '"><table width="100%"><tr><td style="font-family:Georgia,serif;font-size:22px;font-weight:bold;color:' + B.navy + '">Accident<span style="color:' + B.gold + '"> Billing</span></td>' +
+    (url ? '<td style="text-align:right;font-size:14px"><a href="' + url + '" style="color:' + B.navy + ';font-weight:bold;text-decoration:none">Sign in &rsaquo;</a></td>' : '') + '</tr></table></td></tr>' +
+    '<tr><td style="background:' + B.navy + ';color:#fff;padding:18px 24px;font-size:22px;font-weight:bold;font-family:Georgia,serif">Your one-time passcode</td></tr>' +
+    '<tr><td style="padding:24px;font-size:16px;line-height:1.6"><p style="margin:0 0 14px">Hello ' + first.replace(/[<>&"]/g, '') + ',</p>' +
+    '<p style="margin:0 0 14px">Use this code to sign in:</p><p style="margin:0 0 14px;font-size:34px;font-weight:bold;letter-spacing:6px;color:' + B.navy + '">' + code + '</p>' +
+    '<p style="margin:0 0 14px">It expires in ' + MB_ACCESS.CODE_MINUTES + ' minutes and works only once.</p>' +
+    '<div style="background:#fff7e0;border-left:4px solid ' + B.gold + ';padding:12px 14px;font-size:14px;margin:0 0 14px"><b>Keep this code private.</b> We will never call or text you to ask for it. If you did not try to sign in, ignore this email.</div>' +
+    '<p style="margin:0">Thank you,<br>' + B.name + '</p></td></tr>' +
+    '<tr><td style="background:#f7f8fa;padding:14px 24px;font-size:11px;color:#55606e;line-height:1.5">' + B.org + ' · Patient information is protected under HIPAA (45 CFR Parts 160 and 164). This is an automated security message.</td></tr></table></div>';
+}

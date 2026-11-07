@@ -1,0 +1,132 @@
+<script>
+/* ===== Sign-in, saved accounts, Claim Board and Patient Estimate (v1.0 · 2026-11-07) - additive.
+   Replaces how the page talks to the server (every call now carries the signed-in device token). Nothing above is removed. ===== */
+var MBA = { accounts: [], cur: null };
+function mbLoad(){ try{ MBA.accounts = JSON.parse(localStorage.getItem('mb_accounts')||'[]'); MBA.cur = localStorage.getItem('mb_cur'); }catch(e){} }
+function mbSave(){ try{ localStorage.setItem('mb_accounts', JSON.stringify(MBA.accounts)); localStorage.setItem('mb_cur', MBA.cur||''); }catch(e){} mbTellApp(); }
+function mbTellApp(){ try{ if (window.top !== window.self) window.top.postMessage({ cces:'token', token: MBA.accounts.length ? JSON.stringify({ a: MBA.accounts, c: MBA.cur }) : '' }, '*'); }catch(e){} }
+function mbAcct(){ return MBA.accounts.filter(function(a){ return a.email===MBA.cur; })[0] || MBA.accounts[0] || null; }
+function raw(fn){ var args=[].slice.call(arguments,1); return new Promise(function(res,rej){ google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn].apply(null,args); }); }
+api = function(fn,arg){
+  var a = mbAcct(); if(!a){ mbLogin(); return Promise.reject(new Error('Please sign in.')); }
+  return raw('mbCall', a.token, fn, arg).catch(function(e){ var m=(e&&e.message)||String(e); if(m.indexOf('SIGNED_OUT')>-1){ mbDrop(a.email); mbLogin('Your sign-in ended. Please sign in again.'); } throw e; });
+};
+function mbDrop(email){ MBA.accounts = MBA.accounts.filter(function(x){ return x.email!==email; }); if(MBA.cur===email) MBA.cur = MBA.accounts[0]?MBA.accounts[0].email:null; mbSave(); }
+function mbHeader(){
+  var h=document.querySelector('header'); if(!h) return; var a=mbAcct(); var box=document.getElementById('mbAcct');
+  if(!box){ box=document.createElement('div'); box.id='mbAcct'; box.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap'; h.appendChild(box); }
+  box.innerHTML = a ? '<button onclick="mbSwitcher()" title="Switch account">👤 '+esc(a.name)+(MBA.accounts.length>1?' ▾':'')+'</button><button onclick="mbSignOut()">Sign out</button>' : '';
+}
+function mbLogin(note){
+  document.getElementById('nav').style.display='none';
+  document.getElementById('app').innerHTML='<div class=card style="max-width:440px;margin:30px auto"><h2>Sign in</h2>'+(note?'<p class=error>'+esc(note)+'</p>':'')+
+    '<p class=small>Enter your email. We will send a 6-digit code. Your sign-in is saved on this device until you sign out.</p><label>Email<input id=mb_email type=email autocomplete=email></label>'+
+    '<p><button class=primary onclick="mbSend(this)">Send my code</button></p><div id=mb_step2 class=hidden><label>6-digit code<input id=mb_code inputmode=numeric maxlength=6 autocomplete=one-time-code></label><p><button class=primary onclick="mbVerify(this)">Sign in</button></p></div><div id=msg></div>'+
+    (MBA.accounts.length?'<hr><p class=small>Saved on this device:</p>'+MBA.accounts.map(function(x){ return '<button onclick="mbUse(\''+esc(x.email)+'\')">'+esc(x.name)+'</button> '; }).join(''):'')+'</div>';
+  mbHeader();
+}
+function mbSend(b){ var e=document.getElementById('mb_email').value.trim(); if(!e) return; b.disabled=true; raw('mbRequestCode',e).then(function(){ document.getElementById('mb_step2').classList.remove('hidden'); document.getElementById('msg').innerHTML='<span class=ok>If that email is on the staff list, a code is on its way.</span>'; }).catch(function(x){ msg(x); }).finally(function(){ b.disabled=false; }); }
+function mbVerify(b){ var e=document.getElementById('mb_email').value.trim(), c=document.getElementById('mb_code').value.trim(); b.disabled=true;
+  raw('mbVerifyCode',e,c,navigator.userAgent.slice(0,60)).then(function(r){ MBA.accounts=MBA.accounts.filter(function(x){ return x.email!==r.email; }); MBA.accounts.push({ email:r.email, name:r.name, role:r.role, token:r.token }); MBA.cur=r.email; mbSave(); mbStart(); })
+  .catch(function(x){ msg(x); }).finally(function(){ b.disabled=false; }); }
+function mbUse(email){ MBA.cur=email; mbSave(); mbStart(); }
+function mbSwitcher(){
+  document.getElementById('app').innerHTML='<div class=card style="max-width:480px;margin:20px auto"><h2>Switch account</h2>'+MBA.accounts.map(function(x){ return '<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:8px 0"><span><b>'+esc(x.name)+'</b><br><span class=small>'+esc(x.email)+' · '+esc(x.role)+'</span></span><span>'+(x.email===MBA.cur?'<span class=pill>Current</span>':'<button class=primary onclick="mbUse(\''+esc(x.email)+'\')">Use</button>')+'</span></div>'; }).join('')+
+    '<p><button onclick="MBA.cur=null;mbLogin()">+ Add another person</button> <button onclick="mbStart()">Back</button></p></div>';
+}
+function mbSignOut(){ var a=mbAcct(); if(!a) return mbLogin(); raw('mbSignOut',a.token).catch(function(){}); try{ if(window.top!==window.self) window.top.postMessage({cces:'signout'},'*'); }catch(e){} mbDrop(a.email); if(MBA.accounts.length) mbStart(); else mbLogin('You are signed out.'); }
+function mbStart(){ document.getElementById('nav').style.display=''; mbHeader(); refresh(); }
+(function(){
+  ['Claim Board','Patient Estimate','Staff'].forEach(function(v){ if(VIEWS.indexOf(v)<0) VIEWS.splice(v==='Staff'?VIEWS.length:1,0,v); });
+  var prev=showView; showView=function(v){ if(v==='Claim Board') return mbBoard(); if(v==='Patient Estimate') return mbEstimate(); if(v==='Staff') return mbStaffView(); return prev(v); };
+  window.onload=function(){
+    document.getElementById('nav').innerHTML=VIEWS.map(function(v){ return '<button onclick="showView(\''+v+'\')">'+v+'</button>'; }).join('');
+    mbLoad();
+    var go=function(){ if(mbAcct()) mbStart(); else mbLogin(); };
+    try { google.script.url.getLocation(function(loc){ var h=(loc&&loc.hash)||''; if(h.indexOf('tok=')===0 && !MBA.accounts.length){ try{ var o=JSON.parse(decodeURIComponent(h.slice(4))); MBA.accounts=o.a||[]; MBA.cur=o.c||null; }catch(e){} } go(); }); } catch(e){ go(); }
+  };
+})();
+function money(n){ return '$'+Number(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+
+/* ---------- Claim Board ---------- */
+async function mbBoard(){
+  document.getElementById('app').innerHTML='<div class=card>Loading claim board…</div>';
+  try{ var d=await api('mbClaimBoard'); MBA.board=d; var t=d.totals, cols=d.columns;
+    var colColor={'Draft':'#9aa5b1','Needs fixes':'#d97706','Ready':'#2563eb','Submitted':'#1B2951','Partly paid':'#7c3aed','Denied / Appeal':'#b91c1c','Paid':'#15803d','On hold':'#6b7280'};
+    document.getElementById('app').innerHTML='<div class=grid>'+[['Billed',money(t.billed)],['Paid',money(t.paid)],['Still owed',money(t.balance)],['Follow-ups overdue',t.overdue],['Open over 90 days',t.over90]].map(function(x){ return '<div class=card><div class=small>'+x[0]+'</div><div class=metric>'+x[1]+'</div></div>'; }).join('')+'</div>'+
+    '<div class=section style="display:flex;gap:12px;overflow-x:auto;padding-bottom:10px">'+Object.keys(cols).map(function(k){ var list=cols[k]; return '<div style="min-width:260px;flex:0 0 260px"><div style="font-weight:700;border-bottom:3px solid '+colColor[k]+';padding:6px 2px;margin-bottom:8px">'+k+' <span class=pill>'+list.length+'</span></div>'+
+      (list.length?list.map(mbCard).join(''):'<div class=small style="padding:8px">Nothing here.</div>')+'</div>'; }).join('')+'</div>';
+  }catch(e){ err(e); }
+}
+function mbCard(c){
+  return '<div class=card style="margin-bottom:8px;padding:12px;'+(c.overdue?'border-color:#d97706;':'')+'">'+
+    '<div style="display:flex;justify-content:space-between"><b>'+esc(c.patient)+'</b><span class=small>'+esc(c.claim_id)+'</span></div>'+
+    '<div class=small>'+esc(c.insurer)+(c.claim_number?' · #'+esc(c.claim_number):'')+'</div><div class=small>DOS '+esc(c.dos||'—')+' · '+c.lines+' line(s)</div>'+
+    '<div style="margin:6px 0">'+money(c.billed)+' billed · '+money(c.paid)+' paid · <b>'+money(c.balance)+' owed</b></div>'+
+    (c.age_days!==''?'<div class=small>'+c.age_days+' days '+(c.submitted?'since submitted':'open')+'</div>':'')+
+    (c.next_followup?'<div class=small'+(c.overdue?' style="color:#b45309;font-weight:700"':'')+'>Follow up '+esc(c.next_followup)+(c.overdue?' (overdue)':'')+'</div>':'')+
+    (c.denial?'<div class=error style="font-size:12px">Denied: '+esc(c.denial)+'</div>':'')+(c.appeal?'<div class=small>Appeal: '+esc(c.appeal)+'</div>':'')+
+    '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px">'+
+      ((c.status==='Draft'||c.status==='Validation Required'||c.status==='Ready for Review')?'<button onclick="mbValidate(\''+c.claim_id+'\')">Check</button>':'')+
+      (c.status==='Ready for Review'?'<button class=primary onclick="mbSubmitForm(\''+c.claim_id+'\')">Mark sent</button>':'')+
+      ((c.status==='Submitted'||c.paid>0)&&c.balance>0?'<button onclick="mbPayForm(\''+c.claim_id+'\')">Post payment</button><button onclick="mbDenyForm(\''+c.claim_id+'\')">Log denial</button>':'')+
+      '<button onclick="mbFollowForm(\''+c.claim_id+'\')">Follow-up</button>'+
+      '<button onclick="mbHold(\''+c.claim_id+'\','+(c.status!=='On Hold')+')">'+(c.status==='On Hold'?'Release':'Hold')+'</button>'+
+    '</div></div>';
+}
+function mbModal(html){ document.getElementById('app').innerHTML='<div class=card style="max-width:560px;margin:10px auto">'+html+'<div id=msg></div></div>'; }
+async function mbValidate(id){ try{ var r=await api('validateClaim',id); mbModal('<h2>Claim '+esc(id)+'</h2>'+(r.ready?'<p class=ok>Ready to send. No problems found.</p>':'<p class=error>Fix these first:</p><ul>'+r.issues.map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('')+'</ul>')+'<button onclick="mbBoard()">Back to board</button>'); }catch(e){ err(e); } }
+function mbSubmitForm(id){ mbModal('<h2>Mark claim '+esc(id)+' as sent</h2><div class=row><label>How it was sent<select id=method><option>Clearinghouse</option><option>Payer portal</option><option>Fax</option><option>Mail</option><option>Email</option></select></label><label>Sent to<input id=destination placeholder="Payer / portal / fax #"></label><label>Confirmation #<input id=confirmation_number></label><label>Follow up on<input id=followup_date type=date value="'+new Date(Date.now()+30*864e5).toISOString().slice(0,10)+'"></label></div><p><button class=primary onclick="mbSubmit(\''+id+'\')">Save</button> <button onclick="mbBoard()">Cancel</button></p>'); }
+async function mbSubmit(id){ try{ await api('submitClaim',Object.assign({claim_id:id},form(['method','destination','confirmation_number','followup_date']))); mbBoard(); }catch(e){ msg(e); } }
+function mbPayForm(id){ mbModal('<h2>Post payment — '+esc(id)+'</h2><div class=row><label>Payment date<input id=payment_date type=date value="'+new Date().toISOString().slice(0,10)+'"></label><label>Amount<input id=amount type=number step=0.01></label><label>Method<select id=method><option>Check</option><option>EFT</option><option>Card</option></select></label><label>Check / EFT #<input id=reference_number></label></div><p><button class=primary onclick="mbPay(\''+id+'\')">Post</button> <button onclick="mbBoard()">Cancel</button></p>'); }
+async function mbPay(id){ try{ await api('postPayment',Object.assign({claim_id:id},form(['payment_date','amount','method','reference_number']))); mbBoard(); }catch(e){ msg(e); } }
+function mbDenyForm(id){ mbModal('<h2>Log denial — '+esc(id)+'</h2><div class=row><label>Decision date<input id=determination_date type=date></label><label>Category<select id=category><option>Medical necessity / utilization</option><option>Fee schedule / cost</option><option>Coverage</option><option>Coordination of benefits</option><option>Coding</option><option>Missing information</option><option>Duplicate</option><option>Timely filing</option><option>Other</option></select></label><label>Amount disputed<input id=amount_disputed type=number step=0.01></label></div><label>Reason in the insurer\'s words<textarea id=reason></textarea></label><p><button class=primary onclick="mbDeny(\''+id+'\')">Save</button> <button onclick="mbBoard()">Cancel</button></p>'); }
+async function mbDeny(id){ try{ await api('saveDenial',Object.assign({claim_id:id},form(['determination_date','category','amount_disputed','reason']))); mbBoard(); }catch(e){ msg(e); } }
+function mbFollowForm(id){ mbModal('<h2>Follow-up — '+esc(id)+'</h2><label>Follow up on<input id=due_date type=date value="'+new Date(Date.now()+7*864e5).toISOString().slice(0,10)+'"></label><label>Note<textarea id=notes placeholder="Who to call, what to ask"></textarea></label><p><button class=primary onclick="mbFollow(\''+id+'\')">Save</button> <button onclick="mbBoard()">Cancel</button></p>'); }
+async function mbFollow(id){ try{ await api('mbAddFollowup',Object.assign({claim_id:id},form(['due_date','notes']))); mbBoard(); }catch(e){ msg(e); } }
+async function mbHold(id,hold){ try{ await api('mbSetClaimHold',{claim_id:id,hold:hold}); mbBoard(); }catch(e){ err(e); } }
+
+/* ---------- Patient Estimate ---------- */
+async function mbEstimate(){
+  document.getElementById('app').innerHTML='<div class=card>Loading…</div>';
+  try{ var s=await api('mbEstimateSetup'); MBA.est=s; var d=s.defaults;
+    document.getElementById('app').innerHTML='<div class=card><h2>Patient cost estimate</h2><p class=small>Shows what the auto insurer should pay and what the patient may owe. It is an estimate — every number shows how it was figured.</p>'+
+    '<div class=row3><label>PIP case<select id=e_case onchange="mbEstCase()"><option value="">— No case yet —</option>'+s.cases.map(function(c){ return '<option value="'+esc(c.case_id)+'">'+esc(c.patient)+' · '+esc(c.insurer)+' ('+esc(c.case_id)+')</option>'; }).join('')+'</select></label>'+
+    '<label>PIP coverage level<select id=e_cov>'+s.coverage.map(function(c){ return '<option>'+esc(c)+'</option>'; }).join('')+'</select></label>'+
+    '<label>PIP benefits left ($, blank = full limit)<input id=e_left type=number step=0.01></label>'+
+    '<label>Number of visits<input id=e_visits type=number value=12 min=1></label>'+
+    '<label>Fee limit % of Jan 1, 2019 charge<input id=e_pct type=number step=0.1 value="'+d.fee_limit_pct+'"></label>'+
+    '<label>Yearly adjustment factor<input id=e_cpi type=number step=0.0001 value="'+d.cpi_factor+'"></label>'+
+    '<label>Coordinated with health plan?<select id=e_coord onchange="document.getElementById(\'e_coordbox\').classList.toggle(\'hidden\',this.value!==\'Yes\')"><option>No</option><option>Yes</option></select></label></div>'+
+    '<div id=e_coordbox class="row hidden"><label>Health plan deductible left ($)<input id=e_ded type=number step=0.01 value=0></label><label>Copay per visit ($)<input id=e_cop type=number step=0.01 value=0></label></div>'+
+    '<p class=small style="background:#fff7e0;padding:8px;border-radius:8px">'+esc(d.note)+'</p>'+
+    '<h3>Services per visit</h3><table class=table id=e_lines><thead><tr><th>Code</th><th>Description</th><th>Units</th><th>Charge per unit</th><th>Jan 1, 2019 charge per unit</th><th></th></tr></thead><tbody></tbody></table>'+
+    '<p><button onclick="mbEstLine()">+ Add service</button>'+(s.charges.length?' <select id=e_pick><option value="">Add from price list…</option>'+s.charges.map(function(c,i){ return '<option value="'+i+'">'+esc(c.code)+' '+esc(c.description)+' — '+money(c.charge)+'</option>'; }).join('')+'</select>':'')+'</p>'+
+    '<label>Note (optional)<input id=e_notes></label><p><button onclick="mbEstRun(true)">Preview</button> <button class=primary onclick="mbEstRun(false)">Save estimate</button></p><div id=e_out></div><div id=msg></div></div>'+
+    (s.saved.length?'<div class="card section"><h3>Recent estimates</h3>'+table(s.saved,['estimate_id','case_id','coverage_level','visits','est_billed','est_insurer','est_patient','emailed_to'])+'</div>':'');
+    if(document.getElementById('e_pick')) document.getElementById('e_pick').onchange=function(){ var c=s.charges[this.value]; if(c) mbEstLine(c); this.value=''; };
+    mbEstLine({ code:'97124', description:'Massage therapy, each 15 minutes', charge:'' , units:4 });
+  }catch(e){ err(e); }
+}
+function mbEstLine(c){ c=c||{}; var tr=document.createElement('tr'); tr.innerHTML='<td><input class=l_code value="'+esc(c.code||'')+'" style="width:80px"></td><td><input class=l_desc value="'+esc(c.description||'')+'"></td><td><input class=l_units type=number value="'+(c.units||1)+'" style="width:70px"></td><td><input class=l_charge type=number step=0.01 value="'+(c.charge||'')+'" style="width:100px"></td><td><input class=l_2019 type=number step=0.01 style="width:100px"></td><td><button onclick="this.closest(\'tr\').remove()">✕</button></td>'; document.querySelector('#e_lines tbody').appendChild(tr); }
+function mbEstCase(){ var id=document.getElementById('e_case').value, c=(MBA.est.cases||[]).filter(function(x){ return x.case_id===id; })[0]; MBA.estCase=c||null; }
+async function mbEstRun(preview){
+  var lines=[].map.call(document.querySelectorAll('#e_lines tbody tr'),function(tr){ return { code:tr.querySelector('.l_code').value, description:tr.querySelector('.l_desc').value, units:tr.querySelector('.l_units').value, charge:tr.querySelector('.l_charge').value, charge_2019:tr.querySelector('.l_2019').value }; });
+  var e={ preview:preview, case_id:document.getElementById('e_case').value, coverage_level:document.getElementById('e_cov').value, benefits_remaining:document.getElementById('e_left').value, visits:document.getElementById('e_visits').value,
+    fee_limit_pct:document.getElementById('e_pct').value, cpi_factor:document.getElementById('e_cpi').value, coordinated:document.getElementById('e_coord').value, deductible_remaining:(document.getElementById('e_ded')||{}).value, copay_per_visit:(document.getElementById('e_cop')||{}).value, lines:lines, notes:document.getElementById('e_notes').value };
+  try{ var r=await api('mbSaveEstimate',e); var c=MBA.estCase;
+    document.getElementById('e_out').innerHTML='<div class=grid>'+[['Charges',money(r.billed)],['Allowed by fee limit',money(r.allowed)]].concat(r.health_plan?[['Health plan should pay',money(r.health_plan)]]:[]).concat([['Auto insurer should pay',money(r.insurer)],['Patient may owe',money(r.patient)]]).map(function(x,i,a){ return '<div class=card'+(i===a.length-1?' style="border:2px solid #C9A961"':'')+'><div class=small>'+x[0]+'</div><div class=metric>'+x[1]+'</div></div>'; }).join('')+'</div>'+
+      '<div class="card section"><b>How this was worked out</b><ul>'+r.steps.map(function(s){ return '<li>'+esc(s)+'</li>'; }).join('')+'</ul>'+
+      (r.estimate_id?'<p class=ok>Saved as '+esc(r.estimate_id)+'.</p><label>Email it to the patient<input id=e_mail type=email value="'+esc(c&&c.email||'')+'"></label><p><button class=primary onclick="mbEstMail(\''+r.estimate_id+'\',this)">Send branded estimate</button> <button onclick="window.print()">Print</button></p>':'<p class=small>Preview only — tap Save estimate to keep it.</p>')+'</div>';
+  }catch(x){ msg(x); }
+}
+async function mbEstMail(id,b){ b.disabled=true; try{ await api('mbEmailEstimate',{ estimate_id:id, email:document.getElementById('e_mail').value }); document.getElementById('msg').innerHTML='<span class=ok>Estimate emailed.</span>'; }catch(e){ msg(e); } finally{ b.disabled=false; } }
+
+/* ---------- Staff (who can sign in) ---------- */
+async function mbStaffView(){
+  try{ var rows=await api('mbStaff'); document.getElementById('app').innerHTML='<div class=card><h2>Who can sign in</h2><p class=small>Only these emails can get a sign-in code. The owner is always allowed.</p>'+table(rows,['name','email','role','active'])+
+    '<h3>Add or change</h3><div class=row3><label>Name<input id=s_name></label><label>Email<input id=s_email type=email></label><label>Role<select id=s_role><option>Staff</option><option>Therapist</option><option>Biller</option><option>Owner</option></select></label><label>Active<select id=s_active><option>Yes</option><option>No</option></select></label></div><p><button class=primary onclick="mbStaffSave()">Save</button></p><div id=msg></div></div>';
+  }catch(e){ err(e); }
+}
+async function mbStaffSave(){ try{ await api('mbSaveStaff',{ name:document.getElementById('s_name').value, email:document.getElementById('s_email').value, role:document.getElementById('s_role').value, active:document.getElementById('s_active').value }); mbStaffView(); }catch(e){ msg(e); } }
+</script>
