@@ -50,7 +50,7 @@
   <nav id="tabs"></nav>
 </header>
 <main>
-  <iframe id="app" title="CCES Care Portal" allow="camera; microphone; geolocation; clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
+  <iframe id="app" credentialless title="CCES Care Portal" allow="camera; microphone; geolocation; clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
   <div class="cover" id="loading"><div class="spin"></div><p style="margin-top:14px">Opening CCES Care…</p></div>
   <div class="cover" id="offline" hidden>
     <img src="icon-192.png" alt="">
@@ -78,13 +78,25 @@ function drawTabs() {
     b.onclick = function () { go(v); }; n.appendChild(b);
   });
 }
+/* Saved sign-ins: the portal tells this app which accounts are saved, and the app hands them back each time it opens,
+   so people stay signed in even though the portal frame runs without browser cookies. Kept on this device only. */
+var openKey = null;
+function savedAccounts() { try { return localStorage.getItem("cces-care-portal:accounts") || ""; } catch (e) { return ""; } }
+window.addEventListener("message", function (e) {
+  var d = e.data;
+  var host = ""; try { host = new URL(e.origin).hostname; } catch (x) {}
+  if (!d || d.cces !== "accounts" || !(/\.googleusercontent\.com$/.test(host) || host === "script.google.com")) return;
+  try { localStorage.setItem("cces-care-portal:accounts", JSON.stringify(d.accounts || [])); } catch (x) {}
+});
 function go(v, force) {
   cur = v; remember(v.key); drawTabs();
   if (!navigator.onLine) { show("offline"); return; }
-  show("loading");
-  var src = v.url;
-  if (force || frame.getAttribute("src") !== src) frame.setAttribute("src", src); else show(null);
   history.replaceState(null, "", "#" + v.key);
+  if (!force && openKey === v.key) { show(null); return; }
+  show("loading"); openKey = v.key;
+  var a = savedAccounts(), src = v.url;
+  if (a && a !== "[]") src += "#cces=" + btoa(unescape(encodeURIComponent(a)));
+  frame.setAttribute("src", src);
 }
 function show(id) {
   document.getElementById("loading").hidden = id !== "loading";
