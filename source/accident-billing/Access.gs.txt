@@ -141,3 +141,9 @@ function mbCodeEmail_(name, code) {
     '<p style="margin:0">Thank you,<br>' + B.name + '</p></td></tr>' +
     '<tr><td style="background:#f7f8fa;padding:14px 24px;font-size:11px;color:#55606e;line-height:1.5">' + B.org + ' · Patient information is protected under HIPAA (45 CFR Parts 160 and 164). This is an automated security message.</td></tr></table></div>';
 }
+
+/* One-time setup: run from the editor so Google asks the owner to allow sign-in code emails. Additive; changes nothing else. */
+function mbAuthorizeEmail() {
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, ['https://www.googleapis.com/auth/script.send_mail']);
+  return MailApp.getRemainingDailyQuota();
+}
