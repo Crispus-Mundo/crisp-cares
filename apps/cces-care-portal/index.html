@@ -105,7 +105,9 @@ function go(v, force) {
   if (!force && openKey === v.key) { show(null); return; }
   show("loading"); openKey = v.key;
   var a = savedAccounts(), src = v.url;
+  var tk = ""; try { tk = localStorage.getItem("cces-care-portal:token") || ""; } catch (x) {}
   if (a && a !== "[]") src += "#cces=" + btoa(unescape(encodeURIComponent(a)));
+  else if (tk) src += "#tok=" + encodeURIComponent(tk);
   frame.setAttribute("src", src);
 }
 function show(id) {
@@ -170,7 +172,8 @@ window.addEventListener("message", function (e) {
   var d = e.data, host = ""; try { host = new URL(e.origin).hostname; } catch (x) {}
   if (!d || !(/\.googleusercontent\.com$/.test(host) || host === "script.google.com")) return;
   if (d.cces === "snap" && d.html) saveSnap(d);
-  if (d.cces === "signout" || (d.cces === "accounts" && d.accounts && !d.accounts.length)) kclear().catch(function () {});
+  if (d.cces === "token") { try { if (d.token) localStorage.setItem("cces-care-portal:token", String(d.token)); else localStorage.removeItem("cces-care-portal:token"); } catch (x) {} }
+  if (d.cces === "signout" || (d.cces === "accounts" && d.accounts && !d.accounts.length)) { kclear().catch(function () {}); try { localStorage.removeItem("cces-care-portal:token"); } catch (x) {} }
 });
 frame.addEventListener("load", function () { if (navigator.onLine) show(null); });
 window.addEventListener("offline", function () { show("offline"); });
