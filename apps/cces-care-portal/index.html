@@ -40,6 +40,12 @@
   #install b { color: var(--navy); }
   #install .row { display: flex; gap: 8px; margin-top: 10px; }
   #install .x { background: transparent; color: #55606e; border: 1px solid #d6dad3; }
+  #offView { position: absolute; inset: 0; display: flex; flex-direction: column; background: #fff; }
+  .offbar { display: flex; gap: 8px; align-items: center; padding: 8px 10px; background: #fff7e0; border-bottom: 1px solid #ecd9a4; font-size: 14px; color: #5b4500; }
+  .offbar span { flex: 1; }
+  .offbar select { max-width: 45%; padding: 6px; border-radius: 8px; border: 1px solid #d6c27e; }
+  .offbar button { border: 0; background: var(--navy); color: #fff; border-radius: 8px; padding: 7px 12px; }
+  #offFrame { flex: 1; width: 100%; border: 0; position: static; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -52,6 +58,10 @@
 <main>
   <iframe id="app" credentialless title="CCES Care Portal" allow="camera; microphone; geolocation; clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
   <div class="cover" id="loading"><div class="spin"></div><p style="margin-top:14px">Opening CCES Care…</p></div>
+  <div id="offView" hidden>
+    <div class="offbar"><span>&#9679; Offline &middot; <span id="offWhen"></span></span><select id="offPick" aria-label="Saved screens"></select><button onclick="go(cur, true)">Retry</button></div>
+    <iframe id="offFrame" sandbox="allow-same-origin" title="Saved screen"></iframe>
+  </div>
   <div class="cover" id="offline" hidden>
     <img src="icon-192.png" alt="">
     <h1>You're offline</h1>
@@ -100,8 +110,68 @@ function go(v, force) {
 }
 function show(id) {
   document.getElementById("loading").hidden = id !== "loading";
-  document.getElementById("offline").hidden = id !== "offline";
+  document.getElementById("offline").hidden = true;
+  document.getElementById("offView").hidden = true;
+  if (id === "offline") offlineView();
 }
+
+/* ---- Offline: screens you open are saved on this device (encrypted) so you can read them with no signal ---- */
+var SNAP_DAYS = 14, SNAP_MAX = 40, dbp = null;
+function db() {
+  if (!dbp) dbp = new Promise(function (res, rej) {
+    var r = indexedDB.open("cces-care-portal", 1);
+    r.onupgradeneeded = function () { r.result.createObjectStore("kv"); };
+    r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); };
+  });
+  return dbp;
+}
+function kv(mode, fn) { return db().then(function (d) { return new Promise(function (res, rej) { var t = d.transaction("kv", mode), q = fn(t.objectStore("kv")); t.oncomplete = function () { res(q && q.result); }; t.onerror = function () { rej(t.error); }; }); }); }
+function kget(k) { return kv("readonly", function (s) { return s.get(k); }); }
+function kput(k, v) { return kv("readwrite", function (s) { return s.put(v, k); }); }
+function kclear() { return kv("readwrite", function (s) { return s.clear(); }); }
+function cryptoKey() {
+  return kget("key").then(function (k) {
+    if (k) return k;
+    return crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]).then(function (nk) { return kput("key", nk).then(function () { return nk; }); });
+  });
+}
+function seal(obj) { return cryptoKey().then(function (k) { var iv = crypto.getRandomValues(new Uint8Array(12)); return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, k, new TextEncoder().encode(JSON.stringify(obj))).then(function (c) { return { iv: iv, c: c }; }); }); }
+function unseal(box) { return cryptoKey().then(function (k) { return crypto.subtle.decrypt({ name: "AES-GCM", iv: box.iv }, k, box.c); }).then(function (b) { return JSON.parse(new TextDecoder().decode(b)); }); }
+function saveSnap(d) {
+  var key = String(d.key || "screen").slice(0, 120), now = Date.now();
+  return seal({ title: d.title, html: d.html, css: d.css, ts: now }).then(function (box) {
+    return kput("s:" + key, box).then(function () { return kget("index"); }).then(function (idx) {
+      idx = (idx || []).filter(function (x) { return x.key !== key && now - x.ts < SNAP_DAYS * 864e5; });
+      idx.unshift({ key: key, title: String(d.title || "Saved screen").slice(0, 80), ts: now });
+      var drop = idx.slice(SNAP_MAX); idx = idx.slice(0, SNAP_MAX);
+      return kput("index", idx).then(function () { return Promise.all(drop.map(function (x) { return kv("readwrite", function (s) { return s.delete("s:" + x.key); }); })); });
+    });
+  }).catch(function () {});
+}
+function offlineView() {
+  kget("index").then(function (idx) {
+    idx = (idx || []).filter(function (x) { return Date.now() - x.ts < SNAP_DAYS * 864e5; });
+    if (!idx.length) { document.getElementById("offline").hidden = false; return; }
+    var pick = document.getElementById("offPick"); pick.innerHTML = "";
+    idx.forEach(function (x) { var o = document.createElement("option"); o.value = x.key; o.textContent = x.title; pick.appendChild(o); });
+    pick.onchange = function () { openSnap(pick.value); };
+    document.getElementById("offView").hidden = false;
+    openSnap(idx[0].key);
+  }).catch(function () { document.getElementById("offline").hidden = false; });
+}
+function openSnap(key) {
+  kget("s:" + key).then(unseal).then(function (s) {
+    document.getElementById("offWhen").textContent = "saved " + new Date(s.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    document.getElementById("offFrame").srcdoc = "<!DOCTYPE html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><style>" + (s.css || "") +
+      "</style><style>button,input,select,textarea{pointer-events:none;opacity:.75}</style></head><body>" + (s.html || "") + "</body></html>";
+  }).catch(function () {});
+}
+window.addEventListener("message", function (e) {
+  var d = e.data, host = ""; try { host = new URL(e.origin).hostname; } catch (x) {}
+  if (!d || !(/\.googleusercontent\.com$/.test(host) || host === "script.google.com")) return;
+  if (d.cces === "snap" && d.html) saveSnap(d);
+  if (d.cces === "signout" || (d.cces === "accounts" && d.accounts && !d.accounts.length)) kclear().catch(function () {});
+});
 frame.addEventListener("load", function () { if (navigator.onLine) show(null); });
 window.addEventListener("offline", function () { show("offline"); });
 window.addEventListener("online", function () { if (cur) go(cur, true); });
