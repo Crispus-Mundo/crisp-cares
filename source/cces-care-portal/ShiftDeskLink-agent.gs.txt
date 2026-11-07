@@ -1,0 +1,125 @@
+/******************************************************************************
+ * SHIFT DESK LINK v1.0 (2026-11-07) — additive file for the home care line agent (crispcareses, (248) 403-8982).
+ * Nothing in Code.gs or the other files is changed or removed.
+ *
+ * What it does
+ *  1. Caregiver texts: before the agent answers a text, it asks the CCES Shift Desk (in the
+ *     "crisp cares home care client intake" app) whether the sender is a caregiver.
+ *     Caregivers' availability ("Mon Wed 9am-5pm", "11/14 off", CLEAR, HELP) and YES/NO answers
+ *     to shift offers are saved there and answered here. Everyone else gets the agent's usual reply.
+ *     If a caregiver says YES/NO and the Shift Desk has no open offer for them, the agent handles it
+ *     as before (so the agent's own call-out shift texts keep working).
+ *  2. Outgoing texts: every 5 minutes it picks up texts the Shift Desk queued (offers, "you got the
+ *     shift", family notices) and sends them from this Google Voice line by replying in that person's
+ *     existing text thread. Google Voice cannot start a new text thread, so a number that has never
+ *     texted this line is marked "Not sent - no text thread yet" (the Shift Desk also emails offers).
+ *     If Twilio is set up in this project, it is used for those instead.
+ *
+ * Setup (once): Script Properties SHIFT_DESK_URL (the home care app /exec address) and SHIFT_DESK_KEY
+ * (copied from that app's Script Properties), then run sdlSetup(). sdlStatus() shows the last results.
+ * Missed calls: the agent already texts back missed callers (they arrive as text threads) — unchanged.
+ ******************************************************************************/
+var SDL = { LOOKBACK_DAYS: 60, MAX_THREADS: 150, BATCH: 15 };
+
+function sdlOn_() {
+  var p = PropertiesService.getScriptProperties();
+  return !!(p.getProperty('SHIFT_DESK_URL') && p.getProperty('SHIFT_DESK_KEY') && p.getProperty('SHIFT_DESK_OFF') !== 'on');
+}
+function sdlCall_(body) {
+  var p = PropertiesService.getScriptProperties();
+  body.key = p.getProperty('SHIFT_DESK_KEY');
+  var res = UrlFetchApp.fetch(p.getProperty('SHIFT_DESK_URL'), {
+    method: 'post', contentType: 'application/json', payload: JSON.stringify(body),
+    muteHttpExceptions: true, followRedirects: true
+  });
+  var txt = res.getContentText();
+  try { return JSON.parse(txt); } catch (e) { return { ok: false, error: 'Shift Desk answered ' + res.getResponseCode() + ': ' + txt.slice(0, 120) }; }
+}
+function sdlDigits_(s) {
+  var d = String(s || '').replace(/\D/g, '');
+  if (d.length === 11 && d.charAt(0) === '1') d = d.slice(1);
+  return d.length === 10 ? d : '';
+}
+function sdlAscii_(s) { return String(s || '').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ''); }
+function sdlNote_(k, v) { try { PropertiesService.getScriptProperties().setProperty('SDL_' + k, new Date().toISOString() + ' ' + String(v).slice(0, 300)); } catch (e) {} }
+
+/* ---- 1. caregiver texts go to the Shift Desk first ---- */
+var sdlRouteOrig_ = routeMessage_;
+routeMessage_ = function (ctx) {
+  try {
+    if (ctx && ctx.channel === 'SMS' && sdlOn_() && sdlDigits_(ctx.contact)) {
+      var r = sdlCall_({ action: 'inbound', from: sdlDigits_(ctx.contact), text: String(ctx.body || '') });
+      var noOffer = r && r.reply && /no open shift waiting on your answer/i.test(r.reply);
+      if (r && r.ok && r.handled && r.reply && !noOffer) {
+        reply_(ctx, sdlAscii_(r.reply));
+        try { debugLog_(ctx, 'SHIFT DESK: caregiver text handled (' + (r.caregiver || '') + ')'); } catch (e) {}
+        sdlNote_('LAST_INBOUND', (r.caregiver || '') + ' handled');
+        return;
+      }
+      if (r && !r.ok) sdlNote_('LAST_ERROR', r.error);
+    }
+  } catch (err) {
+    sdlNote_('LAST_ERROR', err.message);
+    try { debugLog_(ctx, 'SHIFT DESK link error (agent answered as usual): ' + err.message); } catch (e) {}
+  }
+  return sdlRouteOrig_(ctx);
+};
+
+/* ---- 2. queued Shift Desk texts go out from this line ---- */
+function sdlThreadIndex_() {
+  var idx = {};
+  GmailApp.search('from:txt.voice.google.com newer_than:' + SDL.LOOKBACK_DAYS + 'd', 0, SDL.MAX_THREADS).forEach(function (t) {
+    var msgs = t.getMessages();
+    for (var i = msgs.length - 1; i >= 0; i--) {
+      var m = msgs[i];
+      if (!/txt\.voice\.google\.com/i.test(m.getFrom() || '')) continue;
+      var who = '';
+      try { who = sdlDigits_(extractGvSender_(m.getSubject() || '', m.getPlainBody() || '')); } catch (e) {}
+      if (who && !idx[who]) idx[who] = m;   // newest thread wins (search is newest first)
+      break;
+    }
+  });
+  return idx;
+}
+function sdlSendOutbox() {
+  if (!sdlOn_()) return 'Shift Desk link is not set up (SHIFT_DESK_URL / SHIFT_DESK_KEY).';
+  if (MailApp.getRemainingDailyQuota() < 10) return 'Waiting: Gmail sending limit is nearly used up today.';
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return 'busy';
+  try {
+    var r = sdlCall_({ action: 'outbox', limit: SDL.BATCH });
+    if (!r || !r.ok) { sdlNote_('LAST_ERROR', r && r.error); return 'Shift Desk error: ' + (r && r.error); }
+    var msgs = r.messages || [];
+    if (!msgs.length) return 'Nothing queued.';
+    var idx = sdlThreadIndex_();
+    var results = msgs.map(function (m) {
+      var d = sdlDigits_(m.to), text = sdlAscii_(m.body);
+      try {
+        if (!d) return { msgId: m.msgId, status: 'Failed', note: 'No usable phone number' };
+        if (idx[d]) { idx[d].reply(text); return { msgId: m.msgId, status: 'Sent', note: 'Google Voice (403-8982)' }; }
+        if (typeof v47Sms_ === 'function' && v47Sms_(d, text)) return { msgId: m.msgId, status: 'Sent', note: 'Twilio' };
+        return { msgId: m.msgId, status: 'NoThread', note: 'This number has not texted the home care line yet' };
+      } catch (e) { return { msgId: m.msgId, status: 'Failed', note: String(e.message || e).slice(0, 200) }; }
+    });
+    sdlCall_({ action: 'sent', results: results });
+    var sent = results.filter(function (x) { return x.status === 'Sent'; }).length;
+    sdlNote_('LAST_OUTBOX', sent + ' sent of ' + results.length);
+    return sent + ' sent of ' + results.length;
+  } finally { lock.releaseLock(); }
+}
+
+/* ---- setup + status ---- */
+function sdlSetup() {
+  if (!sdlOn_()) throw new Error('Add Script Properties SHIFT_DESK_URL and SHIFT_DESK_KEY first.');
+  var t = sdlCall_({ action: 'sent', results: [] });
+  if (!t || !t.ok) throw new Error('Could not reach the Shift Desk: ' + (t && t.error));
+  ScriptApp.getProjectTriggers().forEach(function (x) { if (x.getHandlerFunction() === 'sdlSendOutbox') ScriptApp.deleteTrigger(x); });
+  ScriptApp.newTrigger('sdlSendOutbox').timeBased().everyMinutes(5).create();
+  sdlNote_('SETUP', 'connected');
+  return 'Connected to the Shift Desk. Queued texts go out every 5 minutes.';
+}
+function sdlStatus() {
+  var p = PropertiesService.getScriptProperties();
+  var s = ['SETUP', 'LAST_INBOUND', 'LAST_OUTBOX', 'LAST_ERROR'].map(function (k) { return k + ': ' + (p.getProperty('SDL_' + k) || '-'); }).join('\n');
+  Logger.log(s); return s;
+}
