@@ -34,6 +34,10 @@ button,.btn{min-height:54px;border-radius:14px;border:0;font:600 17px/1 Figtree,
 form .gold{margin-top:18px}
 .err{color:var(--bad);font-weight:600;margin:10px 0 0;min-height:1em}
 .note{font-size:13px;color:var(--muted);margin:12px 0 0}
+.tag{font-size:12px;letter-spacing:.5px;opacity:.85;margin-top:2px}
+.refnote{font-size:14px;font-weight:600;color:#C9A961;margin:8px 0 0}
+label.chk{display:flex;gap:10px;align-items:flex-start;font-weight:400;font-size:14px;margin:14px 0 4px;line-height:1.4}
+label.chk input{width:22px;height:22px;min-height:0;margin:0;flex:none}
 .done-head{text-align:center;margin:4px 0 16px}
 .done-head h2{font:600 28px/1.2 "Cormorant Garamond",Georgia,serif;margin:0 0 4px;color:var(--navy)}
 .bcard{position:relative;background:var(--navy);color:var(--cream);border-radius:18px;padding:18px 18px 14px;margin:0 0 14px;overflow:hidden;box-shadow:0 8px 20px rgba(27,41,81,.2)}
@@ -66,8 +70,10 @@ footer{text-align:center;font-size:13px;color:var(--muted);padding:0 18px 30px}
 <div class="wrap">
 <img src="../cm-logo.png" alt="Crispus Mundo logo">
 <div class="brand">CRISP CARES · CRISPUS MUNDO</div>
-<h1>Welcome, HVAC class</h1>
-<p>Leave your name, phone and email to stay in touch about jobs, training and services.</p>
+<div class="tag">Connect for contractors &amp; trades</div>
+<h1 id="hd">Welcome, HVAC class</h1>
+<p id="sub">Leave your name, phone and email to stay in touch about jobs, training and services.</p>
+<p class="refnote" id="refNote" hidden>A friend invited you. Welcome!</p>
 </div>
 </header>
 <main class="wrap">
@@ -78,6 +84,7 @@ footer{text-align:center;font-size:13px;color:var(--muted);padding:0 18px 30px}
 <input id="p" type="tel" inputmode="tel" autocomplete="tel" required placeholder="(000) 000-0000">
 <label for="e">Email</label>
 <input id="e" type="email" inputmode="email" autocomplete="email" required>
+<label class="chk"><input type="checkbox" id="s"> Text me job alerts and updates. Message and data rates may apply. Reply STOP to opt out.</label>
 <button class="gold" id="go" type="submit">Submit</button>
 <p class="err" id="err" role="alert"></p>
 <p class="note">We only use this to send you jobs, class updates and offers from our companies. We never sell your information. You can ask us to remove it any time.</p>
@@ -97,6 +104,14 @@ footer{text-align:center;font-size:13px;color:var(--muted);padding:0 18px 30px}
 <script>
 (function(){
 var API = window.CONNECT_API, SRC = 'hvac-class', KEY = 'connect_hvac_pending';
+var REF = (new URLSearchParams(location.search).get('ref') || '').replace(/[^a-z0-9]/gi, '').slice(0, 30).toLowerCase();
+/* "Welcome, HVAC class" until Dec 10, 2026, then a general welcome (sign-ups are still tagged hvac-class). */
+if (Date.now() >= new Date('2026-12-10T00:00:00-05:00').getTime()) {
+  document.getElementById('hd').textContent = 'Welcome to Connect';
+  document.getElementById('sub').textContent = 'Leave your name, phone and email for trade jobs, training, study help and services.';
+  document.title = 'Sign up | Connect for contractors & trades';
+}
+if (REF) document.getElementById('refNote').hidden = false;
 var EMAIL = 'LmiraC@crispcleans.com';
 var CARDS = [
  {co:'Crisp Cares', t:'Heating & Cooling', d:'HVAC service, repair and installs. Overflow work for partner techs.', phone:'(248) 403-8982', digits:'2484038982'},
@@ -142,7 +157,7 @@ document.getElementById('f').addEventListener('submit',function(ev){
   if(phone.replace(/\D/g,'').length<10) return err.textContent='Please enter a 10-digit phone number.';
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return err.textContent='Please enter a valid email address.';
   var btn=document.getElementById('go'); btn.disabled=true; btn.textContent='Sending…';
-  var body={action:'classSignup',name:name,phone:phone,email:email,src:SRC};
+  var body={action:'classSignup',name:name,phone:phone,email:email,src:SRC,ref:REF,sms:document.getElementById('s').checked};
   if(!navigator.onLine){ try{localStorage.setItem(KEY,JSON.stringify(body));}catch(e){} return showDone(name,true); }
   post(body).then(function(j){
     if(j.ok) return showDone(name,false);

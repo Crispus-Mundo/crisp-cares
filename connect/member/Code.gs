@@ -9,7 +9,7 @@
  * Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone).
  */
 
-var APP_VERSION = 'connect-members v1.3 — 2026-11-06';
+var APP_VERSION = 'connect-members v1.4 — 2026-11-10';
 var ADMINS = ['crispcleaninc@gmail.com']; // ccyars26 is a regular member account by choice
 var APP_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/member/';
 var HUB_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/';
@@ -26,7 +26,7 @@ var KINDS = ['track', 'cert', 'log'];
 var SPECIALTIES = ['HVAC/R', 'Tax preparation', 'Home care', 'Phlebotomy & medical', 'Barbering & cosmetology', 'Cleaning & environmental', 'Business owner', 'Other'];
 
 var TABS = {
-  Members: ['email', 'name', 'phone', 'specialty', 'schoolStart', 'alerts', 'share', 'role', 'partnerStatus', 'company', 'created', 'lastLogin', 'resume', 'premiumUntil', 'plan', 'digest', 'lastDigest', 'source', 'verified', 'fields'],
+  Members: ['email', 'name', 'phone', 'specialty', 'schoolStart', 'alerts', 'share', 'role', 'partnerStatus', 'company', 'created', 'lastLogin', 'resume', 'premiumUntil', 'plan', 'digest', 'lastDigest', 'source', 'verified', 'fields', 'refCode', 'referredBy', 'refMonths', 'promo', 'sms'],
   Unions: ['id', 'name', 'trade', 'state', 'area', 'website', 'phone', 'address', 'signUp', 'requirements', 'howToApply', 'hours', 'pay', 'howItWorks', 'deadline', 'deadlineNote', 'verified', 'source', 'active', 'order'],
   Updates: ['id', 'field', 'title', 'body', 'effective', 'source', 'created', 'postedBy'],
   Plans: ['id', 'name', 'months', 'price', 'note', 'payLink', 'recurring', 'active', 'order'],
@@ -210,27 +210,37 @@ function classSignup_(r) {
   var email = clean_(r.email, 120).toLowerCase();
   var name = clean_(r.name, 80), phone = clean_(r.phone, 30).replace(/[^0-9+()\-. ]/g, '');
   var src = clean_(r.src, 40).replace(/[^a-z0-9_-]/gi, '') || 'hvac-class';
+  var ref = cleanRef_(r.ref), smsOk = bool_(r.sms);
   if (!name) fail_('Please enter your name.');
   if (phone.replace(/\D/g, '').length < 10) fail_('Please enter a 10-digit phone number.');
   if (!isEmail_(email)) fail_('Please enter a valid email address.');
   var cache = CacheService.getScriptCache(), key = 'cs:' + hash_(email).slice(0, 40);
   if (Number(cache.get(key) || 0) >= 5) fail_('You already signed up. Thank you!');
   cache.put(key, String(Number(cache.get(key) || 0) + 1), 3600);
+  ensureHeads_();
+  var refRes = null, member = null;
   var isNew = withLock_(function () {
     var m = rows_('Members').filter(function (x) { return x.email === email; })[0];
     if (!m) {
-      append_('Members', { email: email, name: name, phone: phone, specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: ADMINS.indexOf(email) > -1 ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: '', resume: '', source: src, verified: false });
+      append_('Members', { email: email, name: name, phone: phone, specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: ADMINS.indexOf(email) > -1 ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: '', resume: '', source: src, verified: false, referredBy: ref, sms: smsOk });
+      member = rows_('Members').filter(function (x) { return x.email === email; })[0];
+      ensureRefCode_(member);
+      if (ref) refRes = creditReferral_(ref, email);
       return true;
     }
     if (!m.name) m.name = name;
     if (!m.phone) m.phone = phone;
+    if (smsOk) m.sms = true;
     write_('Members', m);
+    member = m;
     return false;
   });
   notifyAdmins_((isNew ? 'New HVAC class sign-up: ' : 'HVAC class sign-up (already a member): ') + name,
-    '<p><b>' + esc_(name) + '</b> · ' + esc_(phone) + ' · ' + esc_(email) + '</p><p>Source: ' + esc_(src) + '</p><p><a href="' + db_().getUrl() + '">Open the Members sheet</a> · <a href="' + APP_URL + '#admin">Connect admin</a></p>');
+    '<p><b>' + esc_(name) + '</b> · ' + esc_(phone) + ' · ' + esc_(email) + '</p><p>Source: ' + esc_(src) + (ref ? ' · referred by code <b>' + esc_(ref) + '</b>' : '') + ' · texts: ' + (smsOk ? 'yes' : 'no') + '</p><p><a href="' + db_().getUrl() + '">Open the Members sheet</a> · <a href="' + APP_URL + '#admin">Connect admin</a></p>');
   try { sendClassWelcome_(email, name); } catch (e) { logEvent_(email, 'classWelcomeFail', e.message); }
-  logEvent_(email, 'classSignup', src);
+  if (isNew) sendSms_(member, 'Welcome to Connect from Crisp Cares & CMCC. Jobs, study cards and more: ' + HUB_URL + ' Reply STOP to opt out.');
+  afterReferral_(refRes, name);
+  logEvent_(email, 'classSignup', src + (ref ? ' ref:' + ref : ''));
   return { saved: true, isNew: isNew };
 }
 
@@ -244,7 +254,7 @@ var CLASS_CARDS = [
   ['Crispus Mundo', 'Legal Help · Law Analyzer', 'Looking for an attorney? Organize your case papers and see your next steps. $39.99/month.', '', '']
 ];
 function sendClassWelcome_(email, name) {
-  var first = esc_(String(name || '').split(' ')[0]);
+  var first = esc_(firstName_(name));
   var cards = CLASS_CARDS.map(function (c) {
     return '<tr><td style="padding:0 0 10px"><table role="presentation" width="100%" style="background:' + NAVY + ';border-left:6px solid ' + GOLD + ';border-radius:10px"><tr><td style="padding:14px 16px;color:' + CREAM + '">' +
       '<div style="font-size:11px;letter-spacing:1.5px;font-weight:bold;color:' + GOLD + '">' + esc_(c[0].toUpperCase()) + '</div>' +
@@ -253,7 +263,7 @@ function sendClassWelcome_(email, name) {
       (c[3] ? '<a href="tel:+1' + c[4] + '" style="color:#fff;font-weight:bold;text-decoration:none">' + c[3] + '</a> &nbsp;&middot;&nbsp; ' : '<a href="' + APP_URL + '#legal" style="color:#fff;font-weight:bold">Learn more</a> &nbsp;&middot;&nbsp; ') +
       '<a href="mailto:' + SUPPORT_EMAIL + '" style="color:#fff">' + SUPPORT_EMAIL + '</a></td></tr></table></td></tr>';
   }).join('');
-  var res = listResources_();
+  var res = listResources_().filter(function (r) { return /health|dental|insurance|help/i.test(r.type); });
   var health = res.map(function (r) {
     return '<tr><td style="padding:8px 0;border-top:1px solid #E4DCC8"><b>' + esc_(r.name) + '</b> <span style="color:#7A5F22;font-size:12px">' + esc_(r.type) + '</span>' +
       (r.address ? '<br><span style="font-size:13px">' + esc_(r.address) + '</span>' : '') +
@@ -272,7 +282,7 @@ function sendClassWelcome_(email, name) {
     '<p style="margin:10px 0 0;font-size:13px;color:#586079">To use the member app (job tracker, resume help, study cards), sign in at <a href="' + APP_URL + '" style="color:' + NAVY + '">Connect</a> with this email address. We\'ll email you a one-time code.</p>' +
     '<p style="margin:18px 0 0">Thank you,<br>The Connect team<br><span style="color:#586079">Crisp Cares &middot; Crispus Mundo</span></p>';
   MailApp.sendEmail({ to: email, subject: 'Welcome from Crisp Cares & Crispus Mundo — your cards and resources',
-    htmlBody: emailShell_('Your cards, free and reduced-cost health and dental, and your link to Connect', 'Welcome, HVAC class', inner,
+    htmlBody: emailShell_('Your cards, free and reduced-cost health and dental, and your link to Connect', classWelcomeOn_() ? 'Welcome, HVAC class' : 'Welcome to Connect', inner,
       'You are receiving this because you signed up with this email at your HVAC class. To stop these emails, reply and ask to be removed.'),
     name: 'Crisp Cares & Crispus Mundo', replyTo: SUPPORT_EMAIL });
 }
@@ -291,12 +301,16 @@ function requestCode_(r) {
     append_('Codes', { email: email, codeHash: hash_(email + ':' + code), expires: new Date(Date.now() + CODE_MINUTES * 60000), tries: 0 });
   });
   var name = clean_(r.name, 80), phone = clean_(r.phone, 30).replace(/[^0-9+()\-. ]/g, ''), src = clean_(r.src, 40).replace(/[^a-z0-9_-]/gi, '');
+  var ref = cleanRef_(r.ref), refRes = null;
+  ensureHeads_();
   if (phone && phone.replace(/\D/g, '').length < 10) fail_('Please enter a 10-digit phone number.');
   var member = withLock_(function () {
     var m = rows_('Members').filter(function (x) { return x.email === email; })[0];
     if (!m && name) {
-      append_('Members', { email: email, name: name, phone: phone, specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: ADMINS.indexOf(email) > -1 ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: '', resume: '', source: src || 'join', verified: false });
+      append_('Members', { email: email, name: name, phone: phone, specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: ADMINS.indexOf(email) > -1 ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: '', resume: '', source: src || 'join', verified: false, referredBy: ref, sms: bool_(r.sms) });
       m = rows_('Members').filter(function (x) { return x.email === email; })[0];
+      ensureRefCode_(m);
+      if (ref) refRes = creditReferral_(ref, email);
       if (src.indexOf('qr') === 0) notifyAdmins_('New sign-up from your QR code: ' + name, '<p><b>' + esc_(name) + '</b> · ' + esc_(phone) + ' · ' + esc_(email) + '</p><p><a href="' + db_().getUrl() + '">Open the Members sheet</a> · <a href="' + APP_URL + '#admin">Connect admin</a></p>');
     } else if (m && (name || phone)) {
       if (name && !m.name) m.name = name;
@@ -306,12 +320,14 @@ function requestCode_(r) {
     return m;
   });
   sendOtpEmail_(email, member && member.name, code);
+  afterReferral_(refRes, name);
   logEvent_(email, 'requestCode', '');
   return { sent: true };
 }
 
 function verifyCode_(r) {
   var email = clean_(r.email, 120).toLowerCase();
+  ensureHeads_();
   var code = clean_(r.code, 10).replace(/\D/g, '');
   return withLock_(function () {
     var rec = rows_('Codes').filter(function (c) { return c.email === email; })[0];
@@ -332,6 +348,10 @@ function verifyCode_(r) {
       if (isAdmin) m.role = 'admin'; else if (m.role === 'admin') m.role = 'member';
       write_('Members', m);
     }
+    try {
+      var fresh = rows_('Members').filter(function (x) { return x.email === email; })[0];
+      if (fresh && !isAdmin) { ensureRefCode_(fresh); if (applyPromo_(fresh)) logEvent_(email, 'promo', PROMO.id); }
+    } catch (e) { logEvent_(email, 'promoFail', e.message); }
     var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
     // prune expired sessions for this email
     rows_('Sessions').filter(function (s) { return s.email === email && new Date(s.expires).getTime() < Date.now(); }).reverse().forEach(function (s) { delete_('Sessions', s._row); });
@@ -369,7 +389,8 @@ function publicMe_(m) {
     schoolStart: m.schoolStart ? Utilities.formatDate(new Date(m.schoolStart), 'America/Detroit', 'yyyy-MM-dd') : '',
     alerts: bool_(m.alerts), share: bool_(m.share), role: m.role, partnerStatus: m.partnerStatus, company: m.company,
     created: m.created, resume: resume,
-    premiumUntil: m.premiumUntil ? new Date(m.premiumUntil).toISOString() : '', premium: isPremium_(m), plan: m.plan, digest: m.digest || 'weekly', fields: memberFields_(m)
+    premiumUntil: m.premiumUntil ? new Date(m.premiumUntil).toISOString() : '', premium: isPremium_(m), plan: m.plan, digest: m.digest || 'weekly', fields: memberFields_(m),
+    referral: referralInfo_(m), promo: promoInfo_(m), sms: bool_(m.sms)
   };
 }
 
@@ -400,6 +421,7 @@ function saveProfile_(m, p) {
     if ('specialty' in p) m.specialty = SPECIALTIES.indexOf(p.specialty) > -1 ? p.specialty : '';
     if ('schoolStart' in p) m.schoolStart = /^\d{4}-\d{2}-\d{2}$/.test(p.schoolStart) ? p.schoolStart : '';
     if ('alerts' in p) m.alerts = !!p.alerts;
+    if ('sms' in p) m.sms = !!p.sms;
     if ('share' in p) m.share = !!p.share;
     if ('company' in p) m.company = clean_(p.company, 100);
     if ('fields' in p) m.fields = (Array.isArray(p.fields) ? p.fields : []).filter(function (f) { return SPECIALTIES.indexOf(f) > -1; }).join(',');
@@ -718,7 +740,7 @@ function emailShell_(preheader, title, inner, why) {
     '<tr><td style="background:' + CREAM + ';padding:8px 24px;font-size:12px;color:#586079">' + esc_(preheader) + '</td></tr>' +
     '<tr><td style="padding:18px 24px;border-bottom:1px solid #E4DCC8"><table role="presentation" width="100%"><tr>' +
     '<td width="60" style="padding-right:12px"><img src="' + LOGO_URL + '" width="52" height="52" alt="Crispus Mundo" style="display:block;border:0;border-radius:50%"></td>' +
-    '<td style="font-family:Georgia,serif;font-size:20px;font-weight:bold;color:' + NAVY + ';letter-spacing:1px">CONNECT<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:bold;color:#7A5F22;letter-spacing:1.5px">CRISP CARES &middot; CRISPUS MUNDO</div><div style="font-family:Arial,sans-serif;font-size:11px;font-weight:normal;color:#586079;letter-spacing:.5px">' + esc_(ORG) + '</div></td>' +
+    '<td style="font-family:Georgia,serif;font-size:20px;font-weight:bold;color:' + NAVY + ';letter-spacing:1px">CONNECT<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:normal;color:#586079;letter-spacing:.5px">for contractors &amp; trades</div><div style="font-family:Arial,sans-serif;font-size:11px;font-weight:bold;color:#7A5F22;letter-spacing:1.5px">CRISP CARES &middot; CRISPUS MUNDO</div><div style="font-family:Arial,sans-serif;font-size:11px;font-weight:normal;color:#586079;letter-spacing:.5px">' + esc_(ORG) + '</div></td>' +
     '<td align="right" style="font-size:14px"><a href="' + APP_URL + '" style="color:' + NAVY + '">Sign in</a></td></tr></table></td></tr>' +
     '<tr><td style="background:' + NAVY + ';color:' + CREAM + ';padding:16px 24px;font-size:22px;font-family:Georgia,serif">' + esc_(title) + '</td></tr>' +
     '<tr><td style="padding:24px;font-size:15px;line-height:1.55">' + inner + '</td></tr>' +

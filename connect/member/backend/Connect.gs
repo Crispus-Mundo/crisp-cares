@@ -9,7 +9,7 @@
  * Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone).
  */
 
-var APP_VERSION = 'connect-members v1.3 — 2026-11-06';
+var APP_VERSION = 'connect-members v1.4 — 2026-11-10';
 var ADMINS = ['crispcleaninc@gmail.com']; // ccyars26 is a regular member account by choice
 var APP_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/member/';
 var HUB_URL = 'https://crispus-mundo.github.io/crisp-cares/connect/';
@@ -26,7 +26,7 @@ var KINDS = ['track', 'cert', 'log'];
 var SPECIALTIES = ['HVAC/R', 'Tax preparation', 'Home care', 'Phlebotomy & medical', 'Barbering & cosmetology', 'Cleaning & environmental', 'Business owner', 'Other'];
 
 var TABS = {
-  Members: ['email', 'name', 'phone', 'specialty', 'schoolStart', 'alerts', 'share', 'role', 'partnerStatus', 'company', 'created', 'lastLogin', 'resume', 'premiumUntil', 'plan', 'digest', 'lastDigest', 'source', 'verified', 'fields'],
+  Members: ['email', 'name', 'phone', 'specialty', 'schoolStart', 'alerts', 'share', 'role', 'partnerStatus', 'company', 'created', 'lastLogin', 'resume', 'premiumUntil', 'plan', 'digest', 'lastDigest', 'source', 'verified', 'fields', 'refCode', 'referredBy', 'refMonths', 'promo', 'sms'],
   Unions: ['id', 'name', 'trade', 'state', 'area', 'website', 'phone', 'address', 'signUp', 'requirements', 'howToApply', 'hours', 'pay', 'howItWorks', 'deadline', 'deadlineNote', 'verified', 'source', 'active', 'order'],
   Updates: ['id', 'field', 'title', 'body', 'effective', 'source', 'created', 'postedBy'],
   Plans: ['id', 'name', 'months', 'price', 'note', 'payLink', 'recurring', 'active', 'order'],
@@ -210,27 +210,37 @@ function classSignup_(r) {
   var email = clean_(r.email, 120).toLowerCase();
   var name = clean_(r.name, 80), phone = clean_(r.phone, 30).replace(/[^0-9+()\-. ]/g, '');
   var src = clean_(r.src, 40).replace(/[^a-z0-9_-]/gi, '') || 'hvac-class';
+  var ref = cleanRef_(r.ref), smsOk = bool_(r.sms);
   if (!name) fail_('Please enter your name.');
   if (phone.replace(/\D/g, '').length < 10) fail_('Please enter a 10-digit phone number.');
   if (!isEmail_(email)) fail_('Please enter a valid email address.');
   var cache = CacheService.getScriptCache(), key = 'cs:' + hash_(email).slice(0, 40);
   if (Number(cache.get(key) || 0) >= 5) fail_('You already signed up. Thank you!');
   cache.put(key, String(Number(cache.get(key) || 0) + 1), 3600);
+  ensureHeads_();
+  var refRes = null, member = null;
   var isNew = withLock_(function () {
     var m = rows_('Members').filter(function (x) { return x.email === email; })[0];
     if (!m) {
-      append_('Members', { email: email, name: name, phone: phone, specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: ADMINS.indexOf(email) > -1 ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: '', resume: '', source: src, verified: false });
+      append_('Members', { email: email, name: name, phone: phone, specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: ADMINS.indexOf(email) > -1 ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: '', resume: '', source: src, verified: false, referredBy: ref, sms: smsOk });
+      member = rows_('Members').filter(function (x) { return x.email === email; })[0];
+      ensureRefCode_(member);
+      if (ref) refRes = creditReferral_(ref, email);
       return true;
     }
     if (!m.name) m.name = name;
     if (!m.phone) m.phone = phone;
+    if (smsOk) m.sms = true;
     write_('Members', m);
+    member = m;
     return false;
   });
   notifyAdmins_((isNew ? 'New HVAC class sign-up: ' : 'HVAC class sign-up (already a member): ') + name,
-    '<p><b>' + esc_(name) + '</b> · ' + esc_(phone) + ' · ' + esc_(email) + '</p><p>Source: ' + esc_(src) + '</p><p><a href="' + db_().getUrl() + '">Open the Members sheet</a> · <a href="' + APP_URL + '#admin">Connect admin</a></p>');
+    '<p><b>' + esc_(name) + '</b> · ' + esc_(phone) + ' · ' + esc_(email) + '</p><p>Source: ' + esc_(src) + (ref ? ' · referred by code <b>' + esc_(ref) + '</b>' : '') + ' · texts: ' + (smsOk ? 'yes' : 'no') + '</p><p><a href="' + db_().getUrl() + '">Open the Members sheet</a> · <a href="' + APP_URL + '#admin">Connect admin</a></p>');
   try { sendClassWelcome_(email, name); } catch (e) { logEvent_(email, 'classWelcomeFail', e.message); }
-  logEvent_(email, 'classSignup', src);
+  if (isNew) sendSms_(member, 'Welcome to Connect from Crisp Cares & CMCC. Jobs, study cards and more: ' + HUB_URL + ' Reply STOP to opt out.');
+  afterReferral_(refRes, name);
+  logEvent_(email, 'classSignup', src + (ref ? ' ref:' + ref : ''));
   return { saved: true, isNew: isNew };
 }
 
@@ -244,7 +254,7 @@ var CLASS_CARDS = [
   ['Crispus Mundo', 'Legal Help · Law Analyzer', 'Looking for an attorney? Organize your case papers and see your next steps. $39.99/month.', '', '']
 ];
 function sendClassWelcome_(email, name) {
-  var first = esc_(String(name || '').split(' ')[0]);
+  var first = esc_(firstName_(name));
   var cards = CLASS_CARDS.map(function (c) {
     return '<tr><td style="padding:0 0 10px"><table role="presentation" width="100%" style="background:' + NAVY + ';border-left:6px solid ' + GOLD + ';border-radius:10px"><tr><td style="padding:14px 16px;color:' + CREAM + '">' +
       '<div style="font-size:11px;letter-spacing:1.5px;font-weight:bold;color:' + GOLD + '">' + esc_(c[0].toUpperCase()) + '</div>' +
@@ -272,7 +282,7 @@ function sendClassWelcome_(email, name) {
     '<p style="margin:10px 0 0;font-size:13px;color:#586079">To use the member app (job tracker, resume help, study cards), sign in at <a href="' + APP_URL + '" style="color:' + NAVY + '">Connect</a> with this email address. We\'ll email you a one-time code.</p>' +
     '<p style="margin:18px 0 0">Thank you,<br>The Connect team<br><span style="color:#586079">Crisp Cares &middot; Crispus Mundo</span></p>';
   MailApp.sendEmail({ to: email, subject: 'Welcome from Crisp Cares & Crispus Mundo — your cards and resources',
-    htmlBody: emailShell_('Your cards, free and reduced-cost health and dental, and your link to Connect', 'Welcome, HVAC class', inner,
+    htmlBody: emailShell_('Your cards, free and reduced-cost health and dental, and your link to Connect', classWelcomeOn_() ? 'Welcome, HVAC class' : 'Welcome to Connect', inner,
       'You are receiving this because you signed up with this email at your HVAC class. To stop these emails, reply and ask to be removed.'),
     name: 'Crisp Cares & Crispus Mundo', replyTo: SUPPORT_EMAIL });
 }
@@ -291,12 +301,16 @@ function requestCode_(r) {
     append_('Codes', { email: email, codeHash: hash_(email + ':' + code), expires: new Date(Date.now() + CODE_MINUTES * 60000), tries: 0 });
   });
   var name = clean_(r.name, 80), phone = clean_(r.phone, 30).replace(/[^0-9+()\-. ]/g, ''), src = clean_(r.src, 40).replace(/[^a-z0-9_-]/gi, '');
+  var ref = cleanRef_(r.ref), refRes = null;
+  ensureHeads_();
   if (phone && phone.replace(/\D/g, '').length < 10) fail_('Please enter a 10-digit phone number.');
   var member = withLock_(function () {
     var m = rows_('Members').filter(function (x) { return x.email === email; })[0];
     if (!m && name) {
-      append_('Members', { email: email, name: name, phone: phone, specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: ADMINS.indexOf(email) > -1 ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: '', resume: '', source: src || 'join', verified: false });
+      append_('Members', { email: email, name: name, phone: phone, specialty: '', schoolStart: '', alerts: true, digest: 'weekly', lastDigest: '', share: false, role: ADMINS.indexOf(email) > -1 ? 'admin' : 'member', partnerStatus: '', company: '', created: new Date(), lastLogin: '', resume: '', source: src || 'join', verified: false, referredBy: ref, sms: bool_(r.sms) });
       m = rows_('Members').filter(function (x) { return x.email === email; })[0];
+      ensureRefCode_(m);
+      if (ref) refRes = creditReferral_(ref, email);
       if (src.indexOf('qr') === 0) notifyAdmins_('New sign-up from your QR code: ' + name, '<p><b>' + esc_(name) + '</b> · ' + esc_(phone) + ' · ' + esc_(email) + '</p><p><a href="' + db_().getUrl() + '">Open the Members sheet</a> · <a href="' + APP_URL + '#admin">Connect admin</a></p>');
     } else if (m && (name || phone)) {
       if (name && !m.name) m.name = name;
@@ -306,12 +320,14 @@ function requestCode_(r) {
     return m;
   });
   sendOtpEmail_(email, member && member.name, code);
+  afterReferral_(refRes, name);
   logEvent_(email, 'requestCode', '');
   return { sent: true };
 }
 
 function verifyCode_(r) {
   var email = clean_(r.email, 120).toLowerCase();
+  ensureHeads_();
   var code = clean_(r.code, 10).replace(/\D/g, '');
   return withLock_(function () {
     var rec = rows_('Codes').filter(function (c) { return c.email === email; })[0];
@@ -332,6 +348,10 @@ function verifyCode_(r) {
       if (isAdmin) m.role = 'admin'; else if (m.role === 'admin') m.role = 'member';
       write_('Members', m);
     }
+    try {
+      var fresh = rows_('Members').filter(function (x) { return x.email === email; })[0];
+      if (fresh && !isAdmin) { ensureRefCode_(fresh); if (applyPromo_(fresh)) logEvent_(email, 'promo', PROMO.id); }
+    } catch (e) { logEvent_(email, 'promoFail', e.message); }
     var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
     // prune expired sessions for this email
     rows_('Sessions').filter(function (s) { return s.email === email && new Date(s.expires).getTime() < Date.now(); }).reverse().forEach(function (s) { delete_('Sessions', s._row); });
@@ -369,7 +389,8 @@ function publicMe_(m) {
     schoolStart: m.schoolStart ? Utilities.formatDate(new Date(m.schoolStart), 'America/Detroit', 'yyyy-MM-dd') : '',
     alerts: bool_(m.alerts), share: bool_(m.share), role: m.role, partnerStatus: m.partnerStatus, company: m.company,
     created: m.created, resume: resume,
-    premiumUntil: m.premiumUntil ? new Date(m.premiumUntil).toISOString() : '', premium: isPremium_(m), plan: m.plan, digest: m.digest || 'weekly', fields: memberFields_(m)
+    premiumUntil: m.premiumUntil ? new Date(m.premiumUntil).toISOString() : '', premium: isPremium_(m), plan: m.plan, digest: m.digest || 'weekly', fields: memberFields_(m),
+    referral: referralInfo_(m), promo: promoInfo_(m), sms: bool_(m.sms)
   };
 }
 
@@ -400,6 +421,7 @@ function saveProfile_(m, p) {
     if ('specialty' in p) m.specialty = SPECIALTIES.indexOf(p.specialty) > -1 ? p.specialty : '';
     if ('schoolStart' in p) m.schoolStart = /^\d{4}-\d{2}-\d{2}$/.test(p.schoolStart) ? p.schoolStart : '';
     if ('alerts' in p) m.alerts = !!p.alerts;
+    if ('sms' in p) m.sms = !!p.sms;
     if ('share' in p) m.share = !!p.share;
     if ('company' in p) m.company = clean_(p.company, 100);
     if ('fields' in p) m.fields = (Array.isArray(p.fields) ? p.fields : []).filter(function (f) { return SPECIALTIES.indexOf(f) > -1; }).join(',');
@@ -718,7 +740,7 @@ function emailShell_(preheader, title, inner, why) {
     '<tr><td style="background:' + CREAM + ';padding:8px 24px;font-size:12px;color:#586079">' + esc_(preheader) + '</td></tr>' +
     '<tr><td style="padding:18px 24px;border-bottom:1px solid #E4DCC8"><table role="presentation" width="100%"><tr>' +
     '<td width="60" style="padding-right:12px"><img src="' + LOGO_URL + '" width="52" height="52" alt="Crispus Mundo" style="display:block;border:0;border-radius:50%"></td>' +
-    '<td style="font-family:Georgia,serif;font-size:20px;font-weight:bold;color:' + NAVY + ';letter-spacing:1px">CONNECT<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:bold;color:#7A5F22;letter-spacing:1.5px">CRISP CARES &middot; CRISPUS MUNDO</div><div style="font-family:Arial,sans-serif;font-size:11px;font-weight:normal;color:#586079;letter-spacing:.5px">' + esc_(ORG) + '</div></td>' +
+    '<td style="font-family:Georgia,serif;font-size:20px;font-weight:bold;color:' + NAVY + ';letter-spacing:1px">CONNECT<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:normal;color:#586079;letter-spacing:.5px">for contractors &amp; trades</div><div style="font-family:Arial,sans-serif;font-size:11px;font-weight:bold;color:#7A5F22;letter-spacing:1.5px">CRISP CARES &middot; CRISPUS MUNDO</div><div style="font-family:Arial,sans-serif;font-size:11px;font-weight:normal;color:#586079;letter-spacing:.5px">' + esc_(ORG) + '</div></td>' +
     '<td align="right" style="font-size:14px"><a href="' + APP_URL + '" style="color:' + NAVY + '">Sign in</a></td></tr></table></td></tr>' +
     '<tr><td style="background:' + NAVY + ';color:' + CREAM + ';padding:16px 24px;font-size:22px;font-family:Georgia,serif">' + esc_(title) + '</td></tr>' +
     '<tr><td style="padding:24px;font-size:15px;line-height:1.55">' + inner + '</td></tr>' +
@@ -1460,5 +1482,190 @@ function basicTailor_(resume, job) {
   return { headline: resume.headline || job.title, summary: resume.summary || '', skills: skills, exp: exp, edu: resume.edu || [],
     tips: ['Add the exact license names the posting asks for, if you hold them.', 'Mention hours toward your license and any tools you own.'],
     cover: 'I\'m applying for the ' + (job.title || 'open') + ' role' + (job.company ? ' at ' + job.company : '') + '. ' + (resume.summary || '') };
+}
+
+/* ------------------------------------------------------------------ v1.4 (Nov 10 2026): early Black Friday offer, referrals, text alerts
+
+   Early Black Friday: any member who signs in from Nov 10 through Nov 17, 2026 (Detroit time)
+   gets 30 days of Connect Pro once. Stacks on top of Pro they already have.
+
+   Referrals: every member gets a personal link (…/connect/hvac/?ref=CODE or …/member/?join=1&ref=CODE).
+   When the 2nd friend joins with it, the member gets 2 free months; the 3rd friend adds 1 more.
+   Capped at 3 months per member.
+
+   Text alerts (Twilio): off until TWILIO_SID, TWILIO_TOKEN and TWILIO_FROM are set in
+   Project Settings > Script properties. Texts only go to people who checked the text box
+   (Members column "sms" = TRUE). Google Voice has no texting API, so it can't send these.
+*/
+
+var PROMO = { id: 'bf2026', end: '2026-11-17T23:59:59-05:00', days: 30, label: 'Early Black Friday: 30 days of Connect Pro' };
+var REF_MIN = 2, REF_MAX_MONTHS = 3;
+var CLASS_WELCOME_UNTIL = '2026-12-10T00:00:00-05:00'; // HVAC class wording on the class page and email until then
+
+function classWelcomeOn_() { return Date.now() < new Date(CLASS_WELCOME_UNTIL).getTime(); }
+
+/* First name for greetings: skips short prefixes like "MD", "Mr", "Dr". */
+function firstName_(name) {
+  var parts = String(name || '').trim().split(/\s+/).filter(String);
+  var pick = parts.filter(function (p) { return p.replace(/[^a-z]/gi, '').length > 2; })[0] || parts[0] || '';
+  return pick.charAt(0).toUpperCase() + pick.slice(1).toLowerCase();
+}
+
+/* Writes any new Members columns into the sheet's header row (once every 6 hours at most). */
+function ensureHeads_() {
+  var cache = CacheService.getScriptCache();
+  if (cache.get('heads14')) return;
+  Object.keys(TABS).forEach(function (name) {
+    var sh = sh_(name), head = TABS[name];
+    var cur = sh.getRange(1, 1, 1, head.length).getValues()[0];
+    if (cur.join('|') !== head.join('|')) sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold').setBackground(NAVY).setFontColor(CREAM);
+  });
+  cache.put('heads14', '1', 21600);
+}
+
+/* ---------------- referral codes */
+
+function makeRefCode_(m, all) {
+  var base = firstName_(m.name).toLowerCase().replace(/[^a-z]/g, '').slice(0, 12) || String(m.email).split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || 'member';
+  var taken = {}; all.forEach(function (x) { if (x.refCode) taken[String(x.refCode).toLowerCase()] = 1; });
+  var code = base, n = 2;
+  while (taken[code]) code = base + (n++);
+  return code;
+}
+
+/* Gives a member a referral code if they don't have one. Call inside withLock_. */
+function ensureRefCode_(m) {
+  if (m.refCode) return m.refCode;
+  m.refCode = makeRefCode_(m, rows_('Members'));
+  write_('Members', m);
+  return m.refCode;
+}
+
+function refLink_(code) { return HUB_URL + 'hvac/?ref=' + encodeURIComponent(code); }
+
+function cleanRef_(v) { return clean_(v, 30).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+/* Called right after a NEW member row is created with referredBy set. Call inside withLock_. */
+function creditReferral_(code, newEmail) {
+  code = cleanRef_(code);
+  if (!code) return null;
+  var all = rows_('Members');
+  var ref = all.filter(function (x) { return String(x.refCode).toLowerCase() === code; })[0];
+  if (!ref || ref.email === newEmail) return null;
+  var count = all.filter(function (x) { return String(x.referredBy).toLowerCase() === code && x.email !== ref.email; }).length;
+  var owed = count >= REF_MIN ? Math.min(count, REF_MAX_MONTHS) : 0;
+  var given = Number(ref.refMonths) || 0;
+  var add = Math.max(0, owed - given);
+  if (add) {
+    var start = ref.premiumUntil && new Date(ref.premiumUntil).getTime() > Date.now() ? new Date(ref.premiumUntil) : new Date();
+    var until = new Date(start); until.setMonth(until.getMonth() + add);
+    ref.premiumUntil = until; ref.plan = ref.plan || 'Referral reward';
+    ref.refMonths = given + add;
+    write_('Members', ref);
+  }
+  return { referrer: ref, count: count, added: add, total: Number(ref.refMonths) || 0 };
+}
+
+function afterReferral_(res, newName) {
+  if (!res) return;
+  var r = res.referrer;
+  notifyAdmins_('Referral: ' + (newName || 'a new member') + ' joined with ' + (r.name || r.email) + '\'s link',
+    '<p><b>' + esc_(r.name || r.email) + '</b> now has <b>' + res.count + '</b> friend(s) signed up with their link.</p>' +
+    (res.added ? '<p>Connect added <b>' + res.added + ' free month(s)</b> of Pro (' + res.total + ' of ' + REF_MAX_MONTHS + ' earned). Pro now runs through ' + Utilities.formatDate(new Date(r.premiumUntil), 'America/Detroit', 'MMM d, yyyy') + '.</p>' :
+      (res.count < REF_MIN ? '<p>No months yet: rewards start at ' + REF_MIN + ' friends.</p>' : '<p>They have reached the ' + REF_MAX_MONTHS + '-month limit.</p>')) +
+    '<p><a href="' + db_().getUrl() + '">Open the Members sheet</a></p>');
+  if (res.added) {
+    var first = esc_(firstName_(r.name));
+    var inner = '<p style="margin:0 0 14px">Hello' + (first ? ' ' + first : '') + ',</p>' +
+      '<p style="margin:0 0 14px">Another friend joined Connect with your link. You earned <b>' + res.added + ' free month' + (res.added > 1 ? 's' : '') + '</b> of Connect Pro.</p>' +
+      '<p style="margin:0 0 14px">Your Pro now runs through <b>' + Utilities.formatDate(new Date(r.premiumUntil), 'America/Detroit', 'MMMM d, yyyy') + '</b>. You have earned ' + res.total + ' of ' + REF_MAX_MONTHS + ' referral months.</p>' +
+      button_(APP_URL, 'Open Connect') +
+      '<p style="margin:18px 0 0">Thank you,<br>The Connect team<br><span style="color:#586079">CMCC Training Institute</span></p>';
+    try {
+      MailApp.sendEmail({ to: r.email, subject: 'You earned free Connect Pro', htmlBody: emailShell_('A friend joined with your link', 'You earned free Pro', inner, 'You are receiving this because a friend joined Connect with your referral link.'), name: BRAND + ' — CMCC Training Institute', replyTo: SUPPORT_EMAIL });
+    } catch (e) { logEvent_(r.email, 'refMailFail', e.message); }
+    sendSms_(r, 'Connect: a friend joined with your link. You earned ' + res.added + ' free month' + (res.added > 1 ? 's' : '') + ' of Pro. Open ' + APP_URL + ' Reply STOP to opt out.');
+  }
+  logEvent_(r.email, 'referral', res.count + ' friends, +' + res.added + ' months');
+}
+
+/* ---------------- Early Black Friday offer */
+
+function promoOpen_() { return Date.now() <= new Date(PROMO.end).getTime(); }
+
+/* Gives the offer once per member. Call inside withLock_ with a fresh row. Returns true if applied. */
+function applyPromo_(m) {
+  if (!m || !promoOpen_() || m.role === 'admin') return false;
+  var used = String(m.promo || '').split(',').filter(String);
+  if (used.indexOf(PROMO.id) > -1) return false;
+  var start = m.premiumUntil && new Date(m.premiumUntil).getTime() > Date.now() ? new Date(m.premiumUntil) : new Date();
+  m.premiumUntil = new Date(start.getTime() + PROMO.days * 86400000);
+  m.plan = m.plan || PROMO.label;
+  used.push(PROMO.id); m.promo = used.join(',');
+  write_('Members', m);
+  return true;
+}
+
+function referralInfo_(m) {
+  if (!m.refCode) return null;
+  var code = String(m.refCode).toLowerCase();
+  var count = rows_('Members').filter(function (x) { return String(x.referredBy).toLowerCase() === code && x.email !== m.email; }).length;
+  return { code: m.refCode, link: refLink_(m.refCode), friends: count, monthsEarned: Number(m.refMonths) || 0, min: REF_MIN, max: REF_MAX_MONTHS };
+}
+
+function promoInfo_(m) {
+  var used = String(m.promo || '').split(',').indexOf(PROMO.id) > -1;
+  return { id: PROMO.id, label: PROMO.label, open: promoOpen_(), end: PROMO.end, used: used };
+}
+
+/* ---------------- Twilio text alerts */
+
+function smsConfigured_() {
+  var p = PropertiesService.getScriptProperties();
+  return !!(p.getProperty('TWILIO_SID') && p.getProperty('TWILIO_TOKEN') && p.getProperty('TWILIO_FROM'));
+}
+
+function e164_(phone) {
+  var d = String(phone || '').replace(/\D/g, '');
+  if (d.length === 10) return '+1' + d;
+  if (d.length === 11 && d.charAt(0) === '1') return '+' + d;
+  return '';
+}
+
+/* Sends one text to a member who opted in. Never throws; returns true when Twilio accepted it. */
+function sendSms_(m, body) {
+  try {
+    if (!m || !bool_(m.sms) || !smsConfigured_()) return false;
+    var to = e164_(m.phone);
+    if (!to) return false;
+    var p = PropertiesService.getScriptProperties();
+    var sid = p.getProperty('TWILIO_SID');
+    var res = UrlFetchApp.fetch('https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages.json', {
+      method: 'post', muteHttpExceptions: true,
+      headers: { Authorization: 'Basic ' + Utilities.base64Encode(sid + ':' + p.getProperty('TWILIO_TOKEN')) },
+      payload: { To: to, From: p.getProperty('TWILIO_FROM'), Body: String(body).slice(0, 640) }
+    });
+    var ok = res.getResponseCode() < 300;
+    logEvent_(m.email, ok ? 'sms' : 'smsFail', ok ? String(body).slice(0, 80) : res.getContentText().slice(0, 250));
+    return ok;
+  } catch (e) { logEvent_(m && m.email, 'smsFail', e.message); return false; }
+}
+
+/* Admin test from the editor: set the three script properties, put your number below, then run. */
+function testSms() {
+  var me = { email: 'test', phone: '2483879226', sms: true };
+  Logger.log(smsConfigured_() ? (sendSms_(me, 'Connect test text. Reply STOP to opt out.') ? 'Sent' : 'Twilio refused it; see the Log tab') : 'Set TWILIO_SID, TWILIO_TOKEN and TWILIO_FROM in Script properties first.');
+}
+
+/* One-time helper (run from the editor): gives every existing member a referral code. */
+function backfillRefCodes() {
+  ensureHeads_();
+  var n = withLock_(function () {
+    var c = 0;
+    rows_('Members').forEach(function (m) { if (!m.refCode && m.role !== 'admin') { ensureRefCode_(m); c++; } });
+    return c;
+  });
+  Logger.log('Gave ' + n + ' member(s) a referral code.');
+  return n;
 }
 

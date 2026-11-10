@@ -69,7 +69,7 @@
     document.getElementById('topRight').innerHTML = '';
     var bnv = document.getElementById('bottomNav'); if (bnv) bnv.hidden = true; document.body.classList.remove('has-bottom-nav');
     app.innerHTML =
-      '<h1>Sign in to Connect</h1>' + (window.ConnectWatchButton ? ConnectWatchButton() : '') + '<p class="muted">Your job tracker, resume, license wallet and hours log stay private to you. Jobs and rule-change alerts are shared with everyone who signs up.</p>' +
+      '<h1>Sign in to Connect</h1><p class="small muted" style="margin:-6px 0 8px">For contractors &amp; trades</p>' + (window.ConnectWatchButton ? ConnectWatchButton() : '') + '<p class="muted">Your job tracker, resume, license wallet and hours log stay private to you. Jobs and rule-change alerts are shared with everyone who signs up.</p>' +
       (msg ? '<div class="notice err" role="alert">' + h(msg) + '</div>' : '') +
       (step !== 'code' && JOIN
         ? '<form id="emailForm" class="card"><h2 style="margin-top:0">Join Connect</h2><p class="small muted">Free. Takes a minute. We\'ll email you a code to finish.</p><label for="jName">Full name</label><input id="jName" autocomplete="name" required><label for="jPhone">Mobile phone</label><input id="jPhone" type="tel" autocomplete="tel" inputmode="tel" required placeholder="(248) 555-0123"><label for="email">Email</label><input id="email" type="email" autocomplete="email" required value="' + h(email || '') + '"><p class="small muted" style="margin-top:8px">Your name, phone and email go to CMCC Training Institute, Crisp Cares and Crisp Clean so we can send you jobs, updates and your sign-in codes. Your tracker, resume and licenses stay private to you.</p><button class="primary" type="submit">Email me my code</button></form>'
@@ -87,7 +87,7 @@
           .catch(function (err) { busy(btn, false); signInView('code', email, err.message); });
       } else {
         var em = field('email').toLowerCase();
-        var extra = JOIN ? { name: field('jName'), phone: field('jPhone'), src: JOIN_SRC } : {};
+        var extra = JOIN ? { name: field('jName'), phone: field('jPhone'), src: JOIN_SRC, ref: (Q.get('ref') || '').replace(/[^a-z0-9]/gi, '').slice(0, 30) } : {};
         if (JOIN && (!extra.name || extra.phone.replace(/\D/g, '').length < 10)) { busy(btn, false); return signInView('email', em, 'Please enter your name and a 10-digit phone number.'); }
         busy(btn, true, 'Sending…');
         api('requestCode', Object.assign({ email: em }, extra)).then(function () { signInView('code', em); })
@@ -243,6 +243,7 @@
       tickerHtml() + nextSteps(certs, fol) + (store('connect_seen_video') ? '' : (window.ConnectWatchButton ? ConnectWatchButton() : '')) + wisdomToday() + quickTiles() +
       (jobsT.length ? '<h2>My applications</h2>' + jobsT.filter(function (t) { return TRACK_DONE.indexOf(t.status) < 0 || t.status === 'Offer accepted' || t.status === 'Not selected'; }).slice(0, 4).map(appStepper).join('') + '<button class="link" data-tab="tracker">See all ' + jobsT.length + ' in my tracker</button>' : '') +
       (unionsT.length ? '<h2>My union applications</h2>' + unionsT.slice(0, 3).map(unionProgressCard).join('') : '') +
+      promoNotice() +
       (newUp.length ? '<div class="notice"><b>' + newUp.length + ' rule change' + (newUp.length > 1 ? 's' : '') + ' for your field.</b> <button class="link" data-act="openUpdates">Read them</button></div>' : '') +
       '<div class="grid2">' +
       '<div class="stat"><b>' + items('track').filter(function (t) { return t.status === 'Applied' || t.status === 'Interviewing'; }).length + '</b>open applications</div>' +
@@ -252,7 +253,7 @@
       (certs.length && false ? '<h2>Coming due</h2><div class="card">' + certs.map(function (c) { return '<div class="list-item spread"><span>' + h(c.name) + '</span>' + expTag(c.expires) + '</div>'; }).join('') + '</div>' : '') +
       (fol.length && false ? '<h2>Follow up today</h2><div class="card">' + fol.map(function (t) { return '<div class="list-item spread"><span>' + h(t.title) + (t.company ? ' — ' + h(t.company) : '') + '</span><button class="link" data-act="editTrack" data-id="' + h(t.id) + '">Open</button></div>'; }).join('') + '</div>' : '') +
       '<h2>Newest jobs</h2>' + (S.jobs.filter(function (j) { return j.status === 'approved'; }).slice(0, 3).map(jobCard).join('') || '<p class="muted">No jobs posted yet. You\'ll get an email when one is.</p>') +
-      healthCard() + legalCard() +
+      inviteCard() + healthCard() + legalCard() +
       (!S.me.premium ? '<div class="card"><h3>Connect Pro</h3><p class="muted">Full exam prep for your field, advanced wiring diagrams, more refreshers and hands-free car-mode playlists.</p><button class="gold" data-tab="upgrade">See plans</button></div>' : '');
   };
 
@@ -322,6 +323,22 @@
     if (d <= 90) return '<span class="tag warn">' + d + ' days left</span>';
     return '<span class="tag ok">Good until ' + h(fmtDate(exp)) + '</span>';
   }
+  /* v1.4: early Black Friday offer + invite friends */
+  function promoNotice() {
+    var p = S.me && S.me.promo; if (!p) return '';
+    if (p.used && S.me.premiumUntil) return '<div class="notice"><b>Your free Connect Pro is on.</b> It runs through ' + h(new Date(S.me.premiumUntil).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })) + '.</div>';
+    return '';
+  }
+  function inviteCard() {
+    var r = S.me && S.me.referral; if (!r) return '';
+    var left = Math.max(0, r.min - r.friends);
+    var status = r.monthsEarned >= r.max ? 'You earned all ' + r.max + ' free months. Thank you!' :
+      (left ? r.friends + ' friend' + (r.friends === 1 ? '' : 's') + ' joined so far. ' + left + ' more and you start earning free months.' : r.friends + ' friends joined. You earned ' + r.monthsEarned + ' of ' + r.max + ' free months.');
+    return '<div class="card"><h3>Invite friends, earn free Pro</h3><p class="small" style="margin:0 0 8px">When ' + r.min + ' friends join with your link, you get 1 free month of Pro for each friend, up to ' + r.max + ' months.</p>' +
+      '<p class="small muted" style="margin:0 0 8px">' + h(status) + '</p><p class="small" style="word-break:break-all;margin:0 0 10px">' + h(r.link) + '</p>' +
+      '<button class="gold" data-act="refShare">Share my link</button></div>';
+  }
+
   function fieldMatches(f) { var sp = S.me.specialty; return f === 'All' || f === sp || (f === 'EPA 608' && sp === 'HVAC/R') || !sp; }
 
   /* jobs */
@@ -839,6 +856,7 @@
       '<div><label for="pDigest">Email me an update with jobs, deadlines and a word of wisdom</label><select id="pDigest">' + [['daily', 'Every day'], ['weekly', 'Every week (Mondays)'], ['monthly', 'Every month (the 1st)'], ['off', 'Don\'t email updates']].map(function (o) { return '<option value="' + o[0] + '"' + ((me.digest || 'weekly') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
       '<div class="full"><span class="label">My trades (study material and jobs)</span><p class="small muted" style="margin:0 0 6px">Your main field is above. Add more trades here and they show up in Learn and on the job board.</p><div class="chips">' + S.specialties.filter(function (sp) { return sp !== me.specialty; }).map(function (sp) { var on = (me.fields || []).indexOf(sp) > -1; return '<label class="chip check-chip"><input type="checkbox" data-xfield value="' + h(sp) + '"' + (on ? ' checked' : '') + '> ' + h(sp) + '</label>'; }).join('') + '</div></div>' +
       '<div class="full"><label class="check"><input type="checkbox" id="pAlerts"' + (me.alerts ? ' checked' : '') + '> Email me new jobs and rule changes for my fields</label></div>' +
+      '<div class="full"><label class="check"><input type="checkbox" id="pSms"' + (me.sms ? ' checked' : '') + '> Text me important alerts (message and data rates may apply; reply STOP to opt out)</label></div>' +
       '<div class="full"><label class="check"><input type="checkbox" id="pShare"' + (me.share ? ' checked' : '') + '> Let Crisp Cares, Crisp Clean and CMCC see my resume and contact me about openings</label><p class="small muted" style="margin:4px 0 0 32px">Off by default. Your tracker, licenses and logs are never shared.</p></div>' +
       '</div><button class="primary" type="submit" style="margin-top:12px">Save</button></form>' +
       (me.role !== 'admin' ? '<div class="card"><h3>Post jobs as a partner</h3>' +
@@ -1166,6 +1184,7 @@
       case 'sayRule': { var ru = S.updates.filter(function (u) { return u.id === id; })[0]; if (ru) sayNow(ru.title + '. ' + ru.body, ru.title); return; }
       case 'wisSay': { var wx = wisList()[Number(el.getAttribute('data-i'))]; if (wx) { xpAdd(2); sayNow(wx.t + '. ' + wx.b, wx.t); } return; }
       case 'wisHeart': { var t2 = el.getAttribute('data-t'), sv = savedList(), ix = sv.indexOf(t2); if (ix > -1) sv.splice(ix, 1); else { sv.push(t2); xpAdd(2); } store(savedKey(), JSON.stringify(sv)); el.classList.toggle('saved', ix < 0); el.setAttribute('aria-pressed', String(ix < 0)); toast(ix < 0 ? 'Saved' : 'Removed'); return; }
+      case 'refShare': { var rl = S.me && S.me.referral; if (!rl) return; var rt = 'Join me on Connect: HVAC and trade jobs, study cards, union info and resume help. Free sign-up: ' + rl.link; if (navigator.share) navigator.share({ title: 'Connect', text: rt }).catch(function () {}); else { try { navigator.clipboard.writeText(rt); toast('Link copied'); } catch (e) {} } return; }
       case 'wisShare': { var ws = wisList()[Number(el.getAttribute('data-i'))]; if (!ws) return; var txt = ws.t + ' — ' + ws.b + ' (Connect: ' + location.origin + location.pathname.replace(/member\/?$/, '') + ')'; if (navigator.share) navigator.share({ title: ws.t, text: txt }).catch(function () {}); else { try { navigator.clipboard.writeText(txt); toast('Copied to share'); } catch (e) {} } return; }
       case 'wisPlayAll': { var feed = document.getElementById('wisFeed'); var items2 = wisList().map(function (x, i) { return { text: x.t + '. ' + x.b, show: x.t, pause: 1500, onstart: function () { var cardEl = feed && feed.querySelector('.wis-card[data-i="' + i + '"]'); if (cardEl && cardEl.scrollIntoView) cardEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }; }); return playList(items2, 'Wisdom'); }
       case 'speakQ': { var cq = S.quiz.list[S.quiz.i]; var parts = quizToSpeech([cq]); playList(S.quiz.answered != null ? parts : [parts[0]], 'This question'); return; }
@@ -1254,7 +1273,7 @@
     if (kind === 'saveProfile') {
       if (!field('pName') || !field('pSpec')) return toast('Add your name and field.');
       busy(btn, true, 'Saving…');
-      var prof = { name: field('pName'), phone: field('pPhone'), specialty: field('pSpec'), schoolStart: field('pSchool'), digest: field('pDigest'), alerts: field('pAlerts'), share: field('pShare'), fields: Array.prototype.map.call(document.querySelectorAll('[data-xfield]:checked'), function (c) { return c.value; }) };
+      var prof = { name: field('pName'), phone: field('pPhone'), specialty: field('pSpec'), schoolStart: field('pSchool'), digest: field('pDigest'), alerts: field('pAlerts'), sms: field('pSms'), share: field('pShare'), fields: Array.prototype.map.call(document.querySelectorAll('[data-xfield]:checked'), function (c) { return c.value; }) };
       return saveProfileAny(prof, btn, function (first) { go(first ? 'home' : 'profile'); });
     }
     if (kind === 'ask') return sendAsk();
