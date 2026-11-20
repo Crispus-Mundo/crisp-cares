@@ -281,7 +281,7 @@
         (p ? '<button class="gold" style="margin-top:12px" data-act="order" data-kind="product" data-id="S8">Start the Law Analyzer — $39.99/month</button>' : '<p class="small muted" style="margin-top:10px">Connect to the internet once to load sign-up.</p>')) +
       '</div>' +
       '<div class="card"><h3 style="margin-top:0">Need to talk to someone?</h3><p class="small" style="margin:0">Text (248) 403-8982 or email <a href="mailto:LmiraC@crispcleans.com">LmiraC@crispcleans.com</a> and a team member will help you get set up.</p></div>' +
-      '<p class="small muted">The Law Analyzer is a software tool, not a law firm. It does not give legal advice or represent you, and using it does not create an attorney-client relationship.</p>';
+      '<p class="small muted">Not a lawyer. Not legal advice.</p>';
   };
 
   /* command center pieces */
