@@ -813,7 +813,7 @@ function seedCatalog_(ss) {
 
 
 /* Law Analyzer (added Nov 6, 2026). seedCatalog_ only fills an empty tab, so this adds the row once to a live sheet. */
-var LEGAL_PRODUCT = { id: 'S8', name: 'Law Analyzer — legal help', business: 'Crispus Mundo', description: 'Legal help? Looking for an attorney? Start here. Upload your court papers, letters and photos. The Law Analyzer reads them, builds your timeline and court dates, shows what is missing, lays out your next steps under your state\'s court rules, and drafts documents for you to review. Includes "Find an attorney" help with where to file and what to bring to a consult. It is a software tool, not a law firm: it does not give legal advice or represent you.', price: '$39.99 per month', link: '', active: true, order: 0.5, payLink: '' };
+var LEGAL_PRODUCT = { id: 'S8', name: 'Law Analyzer — legal help', business: 'Crispus Mundo', description: 'Legal help? Looking for an attorney? Start here. Upload your court papers, letters and photos. The Law Analyzer reads them, builds your timeline and court dates, shows what is missing, lays out your next steps under your state\'s court rules, and drafts documents for you to review. Includes "Find an attorney" help with where to file and what to bring to a consult. Not a lawyer. Not legal advice.', price: '$39.99 per month', link: '', active: true, order: 0.5, payLink: '' };
 function ensureLegalProduct_() {
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('LEGAL_PRODUCT_V1')) return;
