@@ -48,8 +48,75 @@ function seedUnions_(ss) {
   sh.getRange(2, 1, rows.length, head.length).setValues(rows.map(function (o) { return head.map(function (h) { return o[h] === undefined ? '' : o[h]; }); }));
 }
 
+/* Union facts rechecked 2026-11-24 from each training center's own website. Merged over the Unions tab by id. */
+var UNION_FACTS = {
+  UN636: {
+    name: 'Pipefitters, Steamfitters, Refrigeration & AC Service — UA Local 636', website: 'https://pipefitters636tc.org/apprenticeship', phone: '(248) 585-0636',
+    address: 'Pipefitting Industry Training Center, 636 Executive Dr, Troy, MI 48083 (John R & Dequindre, north of 14 Mile)',
+    signUp: 'A 5-year paid, tuition-free apprenticeship registered with the U.S. Department of Labor: pipefitting, welding and HVAC/R service. 1,200 classroom hours and at least 8,000 on-the-job hours, ending in journeyman status. Up to 32 college credits from local community colleges.',
+    requirements: 'Proof of age, a valid driver\'s license and high school completion (diploma or GED) are verified. You must pass 3 tests: WorkKeys Applied Math (score 6 or higher), WorkKeys Graphic Literacy (6 or higher) and the Wiesen Test of Mechanical Aptitude (raw score 51 or higher). Scores from a proctored test taken within 12 months can be used instead of retesting.',
+    howToApply: '1) Open the application on the training center website on Dec 1. 2) Pay the testing fee when you apply: $45 at Schoolcraft College or $100 at Macomb Community College. 3) Take the tests (bring your driver\'s license and a pencil; no phones; calculators are provided). 4) Interview. 5) You are told within 4–6 weeks after the last application date. No resumes.',
+    drugTest: 'Drug-free program. If you are tentatively selected after the tests and interview, you must pass a drug test. A positive result for marijuana in any form is a failure, even though marijuana is legal in Michigan. The website does not say whether it is a urine or hair test; ask the center.',
+    schedule: 'Full workdays with a union contractor plus classes at the Troy center. Ask the center for the class days and hours.',
+    startDate: 'New classes are brought in about twice a year, "as need arises." You hear back 4–6 weeks after the Dec 20 close, so about late January to early February 2027.',
+    pay: 'Paid from day one at a percentage of the journeyman rate, with raises as you advance. 2026 contract: apprentices got a $2.50/hr raise, plus $1.00/hr more for each current UA welding certification. U.S. DOL wage determination (May 2026): journeyman base $45.96/hr. Ask for the current apprentice wage sheet.',
+    deadline: '2026-12-20', deadlineNote: 'OPEN DEC 1 – DEC 20, 2026. Book your WorkKeys and Wiesen tests now.', verified: '2026-11-24', source: 'https://pipefitters636tc.org/apprenticeship',
+    links: [['Apply (opens Dec 1)', 'https://pipefitters636tc.org/apprenticeship'], ['Book tests at Schoolcraft', 'https://www.cognitoforms.com/SchoolcraftCollege2/ApprenticeshipApplicantTestingAppointments'], ['Book tests at Macomb (email)', 'mailto:WAC@macomb.edu'], ['Contact form', 'https://pipefitters636tc.org/contact'], ['2026 contract (pay)', 'https://pipefitters636.org/wp-content/uploads/2026/04/Pipefitters-Local-636-Tentative-Agreement-April-2026.pdf']]
+  },
+  UN80: {
+    name: 'SMART Sheet Metal Workers Local 80', website: 'https://www.smw80jac.org/apprenticeship', phone: '(586) 979-5190',
+    address: 'Local 80 Training Center, 32700 Dequindre Rd, Warren, MI 48092. Email info@smw80jac.org.',
+    signUp: 'A Building Trades Apprenticeship registered with the U.S. Department of Labor (4 years per the training center): sheet metal fabrication and installation, welding, HVAC system design, HVAC service and testing and balancing. There is also an architectural sheet metal apprenticeship. No up-front cost for school or training materials.',
+    requirements: 'High school diploma or GED, a valid driver\'s license, three personal references, and the $40 exam fee (cash only, non-refundable). You must be able to stand, bend, kneel, lift up to 75 lb and work at heights in all weather, and have your own transportation to job sites across Wayne, Oakland, Macomb, Washtenaw, St. Clair and Sanilac counties.',
+    howToApply: '1) Call (586) 979-5190 for an appointment (Mon–Fri, 8 AM–2 PM). 2) Apply in person in Warren with your diploma/GED, license and $40 cash. 3) You get a time for the entrance exam: the Bennett Mechanical Comprehension Test plus WorkKeys Applied Math, Workplace Documents and Graphic Literacy. Passing scores stay good for 2 years; retesting changes your place on the list.',
+    drugTest: 'If you are accepted, you must take a drug and alcohol screen. The apprenticeship committee pays for it. The website does not say what kind of test it is; ask the center.',
+    schedule: 'Day, afternoon or night shifts in the shop or field. Work can be seasonal, with possible layoffs. Apprentices earn the same hourly wage on school days as on the job.',
+    startDate: 'Exams are the 4th Wednesday of January and July. The next one should be Jan 27, 2027 (apply by Fri, Jan 22). Ask when the next class starts.',
+    pay: 'Paid while you learn, including school days, working beside journeypersons for 80+ union contractors. Ask the training center for the current wage sheet.',
+    deadline: '2027-01-22', deadlineNote: 'Next exam about Jan 27, 2027; apply in person by Fri, Jan 22. (Dates follow the center\'s 4th-Wednesday rule; call to confirm.)', verified: '2026-11-24', source: 'https://www.smw80jac.org/apprenticeship',
+    links: [['Apprenticeship page', 'https://www.smw80jac.org/apprenticeship'], ['2026 application (PDF)', 'https://www.smw80jac.org/Apprenticeship%20Application%2026.pdf'], ['Email the center', 'mailto:info@smw80jac.org']]
+  },
+  UN58: {
+    name: 'IBEW Local 58 — Detroit Electrical Industry Training Center', website: 'https://detroiteitc.org/apply/', phone: '(586) 751-6600',
+    address: 'Detroit Electrical Industry Training Center, Warren, MI. IBEW Local 58 hall: 1358 Abbott St, Detroit. Email support@detroiteitc.org.',
+    signUp: 'Three programs with IBEW Local 58 and Southeastern Michigan NECA: Inside Electrician (5 years), Tele-Data / Sound & Communication (3 years) and Residential Electrician (3 years). You are placed on a job and earn wages from week one.',
+    requirements: 'At least 17 with a high school diploma or GED when you apply. Photo ID and your Social Security number at the aptitude test. Upload transcripts and work, school or military papers (the personal experience form) and a letter of recommendation. Reliable transportation, internet access and a Windows computer for homework (the center can provide access).',
+    howToApply: '1) Create your user account on detroiteitc.org NOW; you cannot start an application until the portal opens, and they warn help is slow during the window. 2) When it opens, fill out the application online. 3) Upload documents and take the aptitude test. 4) You stay on the selection list for 1 year, then interview. You can apply to all 3 programs at once, but once you accept one, you cannot be considered for another for 2 years.',
+    drugTest: 'Failing the drug screen means you will not be signed into the apprenticeship. The website does not say what kind of test it is; ask the center.',
+    schedule: 'School one full day every other week; the rest of the time you work 8-hour days at contractor job sites. Shifts vary, overtime on weekdays and weekends is common, and job locations change often.',
+    startDate: 'Not open now. Application dates will be posted in spring 2027 (the 2026 window was June 15–19). The Summer Worker Program is taking applications now.',
+    pay: 'About $22/hr to start, rising to over $50/hr by graduation (WDIV, May 2025), with healthcare and retirement. Each program has its own wage scale.',
+    deadline: '', deadlineNote: 'Closed. 2027 dates will be posted in spring 2027 (last year: June 15–19). Create your account now.', verified: '2026-11-24', source: 'https://detroiteitc.org/apply/',
+    links: [['Create account / apply', 'https://detroiteitc.org/apply/'], ['Programs and pay', 'https://detroiteitc.org/programs/'], ['Questions (FAQ)', 'https://detroiteitc.org/faq/'], ['Summer Worker Program', 'https://detroiteitc.org/apprenticeships/']]
+  },
+  UN98: {
+    name: 'Plumbers Local 98 & MCA Detroit Training Center', website: 'https://www.plumbers98tc.org/apprenticeship', phone: '(248) 585-1435',
+    address: 'Plumbing Industry Training Center, 1911 Ring Dr, Troy, MI 48083. Email plumberstc@ualocal98jatc.org. Office Mon–Fri, 7 AM–3:30 PM.',
+    signUp: 'A tuition-free 5-year plumbing apprenticeship: 10,000 hours of on-the-job training plus classroom instruction, preparing you for the Michigan journey plumbing license. 30–38 college credits toward an associate degree.',
+    requirements: 'At least 18 when class starts, a valid driver\'s license, a high school diploma, official transcript or GED, and drug-free. WorkKeys scores from the last 2 years: Applied Math level 6, Graphic Literacy level 5 and Workplace Documents level 5, plus a Wiesen Mechanical Aptitude raw score of 48.',
+    howToApply: '1) Take the WorkKeys and Wiesen tests in person at a certified site such as Macomb or Schoolcraft (not online). 2) On the training center page, tap Apply Online, create your account and fill out the application. 3) Upload your diploma/GED, driver\'s license and test results. 4) Interviews follow.',
+    drugTest: 'You must be drug free. The website does not say when or how the test is given; ask the center.',
+    schedule: 'Full workdays with a union plumbing contractor, plus school one day every other week.',
+    startDate: 'This round closes Dec 18, 2026 (or sooner if 200 people apply), followed by interviews. Ask the center for the class start date.',
+    pay: 'About $250,000 in wages and fringe benefits over the 5 years, plus medical for you, your spouse and children, and a pension.',
+    deadline: '2026-12-18', deadlineNote: 'OPEN NOW until Dec 18, 2026, or until 200 people apply, whichever comes first.', verified: '2026-11-24', source: 'https://www.plumbers98tc.org/apprenticeship',
+    links: [['Apply online', 'https://www.plumbers98tc.org/apprenticeship'], ['Book tests at Schoolcraft', 'https://www.cognitoforms.com/SchoolcraftCollege2/ApprenticeshipApplicantTestingAppointments'], ['Book tests at Macomb (email)', 'mailto:WAC@macomb.edu'], ['Email the center', 'mailto:plumberstc@ualocal98jatc.org']]
+  },
+  UNUS: { verified: '2026-11-24' }
+};
+var UNION_FAQ = [
+  ['Can I be in two unions at the same time?', 'Federal law does not stop you from belonging to more than one union. But in practice you can only do one apprenticeship at a time: each one is a full-time job plus school. You can apply to several at once (for example Local 636 and Plumbers 98, which use the same tests), then accept one. The electrical training center says that once you accept one of its programs, you cannot be considered for another for 2 years. If you own a business or do side jobs, ask each union before you sign whether its rules let you keep doing that work.'],
+  ['How are the drug tests done?', 'All four programs test after you are selected, before you start. None of them post the test type (urine or hair) online, so ask when you are selected. Local 636 counts marijuana in any form as a failure, even though it is legal in Michigan.'],
+  ['One test, two applications', 'Local 636 and Plumbers 98 both use the WorkKeys tests and the Wiesen Mechanical Aptitude test at Schoolcraft or Macomb. One test date can cover both. Local 636 needs a 6 in Graphic Literacy; Plumbers 98 needs a 5.']
+];
+function mergeUnions_(list) {
+  var seen = {}, out = (list || []).map(function (u) { seen[u.id] = 1; var f = UNION_FACTS[u.id]; if (!f) return u; var o = {}; for (var k in u) o[k] = u[k]; for (var j in f) o[j] = f[j]; return o; });
+  Object.keys(UNION_FACTS).forEach(function (id) { if (!seen[id] && UNION_FACTS[id].name) { var o = { id: id, trade: id === 'UN58' ? 'Electrical' : id === 'UN98' ? 'Plumbing' : 'HVAC/R', state: 'MI', area: 'Metro Detroit', active: true }; for (var j in UNION_FACTS[id]) o[j] = UNION_FACTS[id][j]; out.push(o); } });
+  return out;
+}
+
 function listUnions_() {
-  return activeRows_('Unions').map(function (u) {
+  return mergeUnions_(activeRows_('Unions')).map(function (u) {
     ['deadline', 'verified'].forEach(function (k) { if (u[k] instanceof Date) u[k] = Utilities.formatDate(u[k], 'America/Detroit', 'yyyy-MM-dd'); else u[k] = String(u[k] || ''); });
     return u;
   });
